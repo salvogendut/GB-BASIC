@@ -22,6 +22,11 @@
         .globl  _f_fromi
         .globl  _f_in
         .globl  _f_out
+        .globl  _g_pset
+        .globl  _g_line
+        .globl  _g_box
+        .globl  _g_boxf
+        .globl  _g_circle
 
 ENG     =       0x2200
 
@@ -44,3 +49,8 @@ _f_toi:         jp      ENG+42
 _f_fromi:       jp      ENG+45
 _f_in:          jp      ENG+48
 _f_out:         jp      ENG+51
+_g_pset:        jp      ENG+54
+_g_line:        jp      ENG+57
+_g_box:         jp      ENG+60
+_g_boxf:        jp      ENG+63
+_g_circle:      jp      ENG+66

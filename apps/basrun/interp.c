@@ -165,21 +165,6 @@ unsigned char str_func(val_t *v)
         v->t = VT_STR; v->s = d; v->sl = 1;
         return 1;
     }
-    if (kw("STR$")) {
-        val_t a;
-        char b[16], *d;
-        unsigned char n = 0;
-        if (!arg_open()) return 1;
-        if (!eval_num(&a)) return 1;
-        if (!arg_close()) return 1;
-        fmt_num(&a.n, b);
-        while (b[n]) n++;
-        d = strtmp_alloc(n);
-        if (g_err) return 1;
-        { unsigned char i; for (i = 0; i < n; i++) d[i] = b[i]; }
-        v->t = VT_STR; v->s = d; v->sl = n;
-        return 1;
-    }
     if (kw("INKEY$")) {
         v->t = VT_STR; v->s = strtmp; v->sl = 0;
         if (pending_key) {
@@ -247,22 +232,6 @@ unsigned char str_func(val_t *v)
         if (!s.sl) { err(E_IFC); return 1; }
         v->t = VT_NUM;
         num_fromi(&v->n, (unsigned char)s.s[0]);
-        return 1;
-    }
-    if (kw("VAL")) {
-        val_t s;
-        char b[20];
-        const char *p = b;
-        unsigned char n;
-        if (!arg_open()) return 1;
-        if (!eval_str(&s)) return 1;
-        if (!arg_close()) return 1;
-        n = (s.sl < 19) ? s.sl : 19;
-        { unsigned char i; for (i = 0; i < n; i++) b[i] = s.s[i]; }
-        b[n] = 0;
-        v->t = VT_NUM;
-        if (f_in(&p)) { f_st(&v->n); FCHK(); }
-        else num_fromi(&v->n, 0);
         return 1;
     }
     return 0;
@@ -735,6 +704,131 @@ static void st_stop(void)
     g_state = ST_END;
 }
 
+/* ---- graphics statements (the pixel work lives in the overlay, gfx.s) --------------- */
+static unsigned char gfx_pen = 1;      /* COLOR - current drawing pen */
+static int eval_i16(void)
+{
+    val_t v;
+    if (!eval_num(&v)) return 0;
+    {
+        int r = num_toi(&v.n);
+        FCHK();
+        return r;
+    }
+}
+
+static unsigned char expect_c(char c)
+{
+    sk();
+    if (*ip != c) { err(E_SYNTAX); return 0; }
+    ip++;
+    return 1;
+}
+
+/* parse "(x,y)" */
+static unsigned char parse_xy(int *x, int *y)
+{
+    if (!expect_c('(')) return 0;
+    *x = eval_i16();
+    if (g_err || !expect_c(',')) return 0;
+    *y = eval_i16();
+    if (g_err || !expect_c(')')) return 0;
+    return 1;
+}
+
+static void st_pset(void)
+{
+    int x, y;
+    unsigned char p = gfx_pen;
+    if (!parse_xy(&x, &y)) return;
+    sk();
+    if (*ip == ',') {
+        ip++;
+        p = (unsigned char)(eval_i16() & 3);
+        if (g_err) return;
+    }
+    con_flush();                       /* text first: the frame-end flush must
+                                          not repaint over this frame's pixels */
+    GFX_X0 = x; GFX_Y0 = y; GFX_PEN = p;
+    gb_curhide();
+    g_pset();
+    gb_curshow();
+}
+
+static void st_line(void)
+{
+    int x0, y0, x1, y1;
+    unsigned char p = gfx_pen, box = 0;
+    if (!parse_xy(&x0, &y0)) return;
+    if (!expect_c('-')) return;
+    if (!parse_xy(&x1, &y1)) return;
+    sk();
+    if (*ip == ',') {
+        ip++;
+        sk();
+        if (*ip != ',') {
+            p = (unsigned char)(eval_i16() & 3);
+            if (g_err) return;
+            sk();
+        }
+        if (*ip == ',') {
+            ip++;
+            if (kw("BF")) box = 2;
+            else if (kw("B")) box = 1;
+            else { err(E_SYNTAX); return; }
+        }
+    }
+    con_flush();
+    GFX_X0 = x0; GFX_Y0 = y0; GFX_X1 = x1; GFX_Y1 = y1; GFX_PEN = p;
+    gb_curhide();
+    if (box == 2) g_boxf();
+    else if (box) g_box();
+    else g_line();
+    gb_curshow();
+}
+
+static void st_circle(void)
+{
+    int x, y, r;
+    unsigned char p = gfx_pen;
+    if (!parse_xy(&x, &y)) return;
+    if (!expect_c(',')) return;
+    r = eval_i16();
+    if (g_err) return;
+    sk();
+    if (*ip == ',') {
+        ip++;
+        p = (unsigned char)(eval_i16() & 3);
+        if (g_err) return;
+    }
+    con_flush();
+    GFX_X0 = x; GFX_Y0 = y; GFX_X1 = r; GFX_PEN = p;
+    gb_curhide();
+    g_circle();
+    gb_curshow();
+}
+
+static void st_color(void)
+{
+    gfx_pen = (unsigned char)(eval_i16() & 3);
+}
+
+static void st_locate(void)
+{
+    int r, c;
+    r = eval_i16();
+    if (g_err || !expect_c(',')) return;
+    c = eval_i16();
+    if (g_err) return;
+    if (r < 1 || c < 1) { err(E_IFC); return; }
+    con_locate((unsigned char)(r - 1), (unsigned char)(c - 1));
+}
+
+static void st_cls(void)
+{
+    con_clear();          /* every row repaints opaque -> graphics wiped too */
+}
+
 /* ---- INPUT ------------------------------------------------------------------------ */
 static const char *input_vars;         /* varlist position for input_store */
 
@@ -914,9 +1008,11 @@ void exec_stmt(void)
             { "RESTORE", st_restore }, { "RANDOMIZE", st_randomize },
             { "ELSE", skip_to_eol },   /* taken-THEN ran into the ELSE tail */
             { "STOP", st_stop }, { "END", finish_ok },
+            { "PSET", st_pset }, { "LINE", st_line }, { "CIRCLE", st_circle },
+            { "COLOR", st_color }, { "LOCATE", st_locate }, { "CLS", st_cls },
         };
         unsigned char i;
-        for (i = 0; i < 18; i++)
+        for (i = 0; i < 24; i++)
             if (kw(STMT[i].n)) { STMT[i].f(); return; }
     }
     /* implied LET (bare identifier) */

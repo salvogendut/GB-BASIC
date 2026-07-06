@@ -140,20 +140,18 @@ void con_flush(void)
 /* ---- built-in test program (used when launched with no file argument) ------- */
 #ifndef BUILTIN_OFF
 static const char builtin[] =
-    "10 REM M4 TEST\n"
-    "20 A$=\"HELLO\"\n"
-    "30 B$=A$+\", \"+\"WORLD\"\n"
-    "40 PRINT B$;\"!\"\n"
-    "50 PRINT \"LEN\";LEN(B$);\"ASC\";ASC(A$)\n"
-    "60 PRINT \"L/R/M \";LEFT$(B$,4);\"-\";RIGHT$(B$,5);\"-\";MID$(B$,4,4)\n"
-    "70 PRINT \"CHR\";CHR$(72);\" STR[\";STR$(42);\"]\";\" VAL\";VAL(\"3.5X\")\n"
-    "80 IF A$=\"HELLO\" THEN PRINT \"SCMP-OK\"\n"
-    "90 IF A$<\"IF\" THEN PRINT \"SLT-OK\"\n"
-    "100 INPUT \"NAME\";N$\n"
-    "110 PRINT \"HI, \";N$;\"!\"\n"
-    "120 INPUT \"TWO NUMS\";X,Y\n"
-    "130 PRINT \"SUM\";X+Y\n"
-    "140 END\n";
+    "10 REM M5 GFX\n"
+    "20 CLS\n"
+    "30 FOR I=0 TO 230 STEP 23\n"
+    "40 LINE (0,159)-(I,10),1\n"
+    "50 NEXT\n"
+    "60 CIRCLE (60,120),30,3\n"
+    "70 CIRCLE (60,120),18,2\n"
+    "80 LINE (150,60)-(220,120),3,B\n"
+    "90 LINE (160,70)-(210,110),2,BF\n"
+    "100 COLOR 2\n"
+    "110 PSET (238,12):PSET (236,14)\n"
+    "120 END\n";
 #endif
 
 /* ---- state machine ---------------------------------------------------------- */
@@ -323,7 +321,6 @@ void main(void)
 {
     unsigned char n;
     static char orig11[11];
-    con_clear();
     gb_wm_managed(&mw);                             /* register FIRST: captures the file arg */
     /* two-stage load: pull the float-engine overlay (BASRUN2.BIN) into low RAM
        at LR_ENGINE by temporarily repointing our window's file argument */
@@ -332,7 +329,7 @@ void main(void)
     /* the floppy loader's size gate is on-disk 128-byte records INCLUDING the
        AMSDOS header, and it writes whole 512B sectors - allow 0x0AC0 (sectors
        spill into the not-yet-loaded program area, which is harmless) */
-    n = (unsigned char)(gb_fs_load((char *)LR_ENGINE, 0x0AC0) != 0);
+    n = (unsigned char)(gb_fs_load((char *)LR_ENGINE, 0x0E00) != 0);
     gb_set_name(orig11);
     if (!n || *(volatile unsigned char *)LR_ENGINE != 0xC3) {   /* jp = engine present */
         con_puts("BASRUN2.BIN missing.");

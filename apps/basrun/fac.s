@@ -48,13 +48,23 @@
         .globl  _f_in
         .globl  _f_out
         .globl  _fac_err
+        .globl  _g_pset
+        .globl  _g_line
+        .globl  _g_box
+        .globl  _g_boxf
+        .globl  _g_circle
 
 E_DIV0  =       4               ; keep in sync with basrun.h
 E_OVF   =       5
 
         .area   _DATA
 _fac_err::
-        .ds     1
+        .ds     1               ; 0x2C60
+GX0::   .ds     2               ; 0x2C61 graphics parameter cells (see basrun.h)
+GY0::   .ds     2               ; 0x2C63
+GX1::   .ds     2               ; 0x2C65
+GY1::   .ds     2               ; 0x2C67
+GPEN::  .ds     1               ; 0x2C69
 FEXP:   .ds     1
 FSGN:   .ds     1               ; 0x00 = +, 0xFF = -
 FM:     .ds     3               ; FM+0 = MSB (bit7 = explicit leading 1)
@@ -97,6 +107,11 @@ TMPB:   .ds     1
         jp      _f_fromi        ; +45
         jp      _f_in           ; +48
         jp      _f_out          ; +51
+        jp      _g_pset         ; +54 (gfx.s, overlay part 2)
+        jp      _g_line         ; +57
+        jp      _g_box          ; +60
+        jp      _g_boxf         ; +63
+        jp      _g_circle       ; +66
 
 ;; ---- load / store -----------------------------------------------------------
 

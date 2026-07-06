@@ -5,6 +5,11 @@
  */
 #include "basrun.h"
 
+void fchk(void)
+{
+    if (fac_err) { err(fac_err); fac_err = 0; }
+}
+
 void fmt_num(const num_t *n, char *dst)
 {
     f_ld(n);

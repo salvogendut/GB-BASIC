@@ -43,7 +43,7 @@ CFLAGS="-mz80 --fomit-frame-pointer --opt-code-size --max-allocs-per-node 30000 
 APP_RELS=""
 for src in "$APP"/*.s; do                       # app-local asm (thunks etc.)
     [ -e "$src" ] || continue
-    case "$src" in */fac.s) continue ;; esac    # the float engine is the BASRUN2.BIN
+    case "$src" in */fac.s|*/gfx.s) continue ;; esac  # engine+gfx = the BASRUN2.BIN
     rel="$work/$(basename "${src%.s}").rel"     # overlay (tools/build_engine.sh), not
     "$SDAS" -o "$rel" "$src"                    # linked into the app image
     APP_RELS="$APP_RELS $rel"
@@ -100,6 +100,7 @@ print('  image end %04X (data-loc %04X, %+d spare) | data end %04X (%+d spare be
 errs = []
 if img_end > dloc:  errs.append('loaded image ends 0x%04X > data-loc 0x%04X (gsinit/data overlap)' % (img_end, dloc))
 if top > 0x8000:    errs.append('data/bss ends 0x%04X > kernel 0x8000' % top)
+if img_end - 0x4000 > 0x3F00: errs.append('image %d bytes > the kernel app-load cap 16128' % (img_end - 0x4000))
 if errs:
     sys.stderr.write('FIT ERROR (%s): %s - shrink it or adjust DATA_LOC\n' % (app, '; '.join(errs)))
     sys.exit(1)

@@ -23,17 +23,17 @@
 #define CY        ((unsigned char)(gb_wm_y() + 16))
 
 /* ---- capacity knobs (fit-check ladder adjusts these) ---------------------- */
-#define PROG_MAX  1792            /* program text cap */
-#define PROG_SLK  512             /* gb_fs_load copies whole 512B sectors */
-#define NVARS     48              /* numeric scalars */
+#define PROG_MAX  1728            /* program text cap */
+#define PROG_SLK  0               /* loader sector spill lands in grid (pre-clear) */
+#define NVARS     36              /* numeric scalars */
 #define SVARS     8               /* string variables */
-#define SSTR_CAP  31              /* max string length */
+#define SSTR_CAP  25              /* max string length */
 #define NARRS     8               /* DIM'd arrays */
-#define APOOL     64              /* floats in the array pool */
+#define APOOL     40              /* floats in the array pool */
 #define FORS      8               /* FOR nesting */
 #define GOSUBS    8               /* GOSUB nesting */
-#define STRTMP    232             /* per-statement string scratch arena */
-#define INBUF     64              /* INPUT line buffer */
+#define STRTMP    192             /* per-statement string scratch arena */
+#define INBUF     56              /* INPUT line buffer */
 
 /* ---- big buffers live in kernel low RAM, not the 16K bank -------------------
  * 0x2200..0x3DFF is the module bulk-transfer buffer (gb_copybuf): idle except
@@ -43,9 +43,9 @@
  * Caveat (documented in the README): file transfers performed by OTHER windows
  * while a program is running share this RAM and can disturb the program. */
 #define LR_BASE     0x2200
-#define LR_ENGINE   LR_BASE          /* BASRUN2.BIN overlay: code 0x2200..0x2C5F */
-#define LR_ENGDATA  0x2C60           /* engine FAC/ARG state (fac_err first)     */
-#define LR_PROG     0x2CC0                               /* PROG_MAX + PROG_SLK  */
+#define LR_ENGINE   LR_BASE          /* BASRUN2.BIN overlay: code 0x2200..0x2F7F */
+#define LR_ENGDATA  0x2F80           /* engine state: fac_err, gfx cells, FAC/ARG */
+#define LR_PROG     0x2FD0                               /* PROG_MAX + PROG_SLK  */
 #define LR_GRID   (LR_PROG + PROG_MAX + PROG_SLK)        /* CON_ROWS*CON_COLS    */
 #define LR_STRTMP (LR_GRID + CON_ROWS * CON_COLS)        /* STRTMP               */
 #define LR_INBUF  (LR_STRTMP + STRTMP)                   /* INBUF + 4            */
@@ -103,7 +103,19 @@ unsigned char f_in(const char **pp);   /* parse decimal at *pp -> FAC; 1 = digit
 void f_out(char *dst);            /* GW-style format of FAC (destroys FAC/ARG) */
 #define fac_err (*(volatile unsigned char *)LR_ENGDATA)  /* engine error latch */
 
-#define FCHK() do { if (fac_err) { err(fac_err); fac_err = 0; } } while (0)
+/* graphics parameter cells (fac.s data head) + overlay entries (gfx.s) */
+#define GFX_X0  (*(volatile int *)(LR_ENGDATA + 1))
+#define GFX_Y0  (*(volatile int *)(LR_ENGDATA + 3))
+#define GFX_X1  (*(volatile int *)(LR_ENGDATA + 5))
+#define GFX_Y1  (*(volatile int *)(LR_ENGDATA + 7))
+#define GFX_PEN (*(volatile unsigned char *)(LR_ENGDATA + 9))
+void g_pset(void);
+void g_line(void);
+void g_box(void);
+void g_boxf(void);
+void g_circle(void);
+
+#define FCHK() fchk()
 
 /* ---- error codes ------------------------------------------------------------ */
 #define E_NONE   0
@@ -184,11 +196,7 @@ void fn_sin(void);
 void fn_cos(void);
 void fn_tan(void);
 
-/* gfx.c */
-void gfx_pset(int x, int y, unsigned char pen);
-void gfx_line(int x0, int y0, int x1, int y1, unsigned char pen);
-void gfx_box(int x0, int y0, int x1, int y1, unsigned char pen, unsigned char fill);
-void gfx_circle(int cx, int cy, int r, unsigned char pen);
-extern unsigned char gfx_pen;           /* COLOR - current drawing pen (1-3) */
+/* fchk: raise a latched engine error (function, not macro - ~35 call sites) */
+void fchk(void);
 
 #endif
