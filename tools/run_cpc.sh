@@ -32,7 +32,18 @@ EMU="${EMU:-../1984/1984}"
 # break the harness. Seed it once with: git -C ../geobench worktree add --detach
 # build/geo-clean HEAD && cp -r ../geobench/build/* build/geo-clean/build/
 # Force a rebuild with FORCE_BOOTDSK=1 (e.g. after moving the pin).
-GEOK="${GEOK:-build/geo-clean}"
+# pinned geobench worktree (see docs) - OUTSIDE build/ so 'make clean' can't wipe
+# it; auto-created on first use at the HEAD this project was verified against.
+GEOK="${GEOK:-.geo-pin}"
+if [ ! -d "$GEOK" ]; then
+    echo "Creating pinned geobench worktree at $GEOK ..."
+    git -C "$GEOBENCH" worktree add --detach "$(pwd)/$GEOK" HEAD >/dev/null 2>&1
+    # seed its build/ with the app .RAW/.IST/.FNT artifacts the kernel incbins
+    # (the pin only rebuilds the KERNEL; the app binaries come from $GEOBENCH/build)
+    mkdir -p "$GEOK/build"
+    cp -r "$GEOBENCH"/build/* "$GEOK/build/" 2>/dev/null || true
+fi
+mkdir -p "$GEOK/build"
 if [ ! -f build/bootsav.dsk ] || [ "${FORCE_BOOTDSK:-0}" = "1" ]; then
     printf 'FONT=DEFAULT\r\nICONS=REFINED\r\nCURSOR=DEFAULT\r\nVIEW=DEFAULT\r\nBACKDROP=SOLID\r\nWALLPAPER=LOGO\r\nSAVER=B:SPIKE\r\nSAVERTIME=1\r\n' \
         > "$GEOK/build/GEOBENCH.CFG"

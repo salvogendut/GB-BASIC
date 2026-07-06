@@ -3,3 +3,4 @@ dist/
 *.ppm
 *.png
 !docs/**/*.png
+.geo-pin/
