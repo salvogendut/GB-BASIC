@@ -4,8 +4,10 @@
  * Diff vs apps/notepad/main.c (keep in sync with upstream fixes):
  *   - edits .BAS only; the CR/LF round-trip is unconditional
  *   - buffer capped at 1728 bytes = BASRUN's PROG_MAX
- *   - a "Run" top-bar menu (and Ctrl-R): auto-saves (prompting for a name if
- *     UNTITLED), positions the FS on the saved file, launches BASRUN.APP
+ *   - File > Load follows BASIC LOAD semantics: discard the current program
+ *     without an unsaved prompt, then leave the loaded program clean
+ *   - a "Run" top-bar menu (and Ctrl-R): copies the buffer to RAM and launches
+ *     BASRUN.APP without saving to disk
  *   - status line shows the caret's Ln:Col (line numbers matter in BASIC)
  *
  * The original notepad header follows.
@@ -326,11 +328,10 @@ static void on_menu(void)
     gb_doc_event();
 }
 
-/* is_bas: is the current file a BASIC program? .BAS needs CR+LF on the CPC (we
-   otherwise edit plain \n); read the framework's current 8.3 name. */
-static unsigned char is_bas(void)
+/* name_is_bas: is this raw 8.3 name a BASIC program? .BAS needs CR+LF on the CPC
+   (we otherwise edit plain \n). */
+static unsigned char name_is_bas(const char *n)
 {
-    const char *n = gb_doc_name();
     return (unsigned char)(n[8] == 'B' && n[9] == 'A' && n[10] == 'S');
 }
 
@@ -374,11 +375,13 @@ static unsigned int sv_orig, sv_wl;            /* .BAS save round-trip state */
 static void np_new(void)
 {
     len = 0; cur = 0; view_first = 0; sel_on = 0;
+    buf[0] = 0;
 }
 static void np_open(unsigned int n)
 {
     len = strip_cr(n);                         /* .BAS arrives CR+LF -> edit as \n */
     cur = 0; view_first = 0; sel_on = 0;
+    if (len < NP_BUF) buf[len] = 0;
 }
 static unsigned int np_save(void)
 {
@@ -409,7 +412,7 @@ static void np_fullscreen(unsigned char on)
 
 static const gb_doc_t npdoc = {
     buf, NP_MAX, np_new, np_open, np_save, np_saved, copy_sel, paste_clip, select_all,
-    np_exts, 0, 0, np_fullscreen, 0, 0
+    np_exts, 0, 0, np_fullscreen, 0, 0, GB_DOC_LOAD_NOCONFIRM
 };
 
 /* --- Edit menu: copy / paste over a selection (#99) ----------------------- */
@@ -476,6 +479,9 @@ static void paste_clip(void)
 #define HANDOFF_MAGIC ((volatile unsigned char *)0x3400)
 #define HANDOFF_LEN   (*(volatile unsigned int *)0x3404)
 #define HANDOFF_PROG  ((char *)0x3410)
+#define WM_OPEN_STRICT (*(volatile unsigned char *)0x123D)
+
+static unsigned char run_launched;
 
 static void do_run(unsigned char item)
 {
@@ -491,6 +497,8 @@ static void do_run(unsigned char item)
     HANDOFF_LEN = j;
     HANDOFF_MAGIC[0] = 'G'; HANDOFF_MAGIC[1] = 'B';
     HANDOFF_MAGIC[2] = 'R'; HANDOFF_MAGIC[3] = 'N';
+    WM_OPEN_STRICT = 1;                            /* BASRUN lives beside BASIC on companion disks */
+    run_launched = 1;
     gb_wm_open("BASRUN  APP");                    /* file-less launch; BASRUN uses the RAM copy */
 }
 
@@ -708,14 +716,17 @@ static void n_frame(void)
     win_title();                                 /* keep wtitle fresh for the WM title draw */
 
     {
-        unsigned char r = gb_doc_frame();         /* a File/Edit menu/dialog ran (#142) */
+        unsigned char r;
+        run_launched = 0;
+        r = gb_doc_frame();                       /* a File/Edit menu/dialog ran (#142) */
         if (r) {
             keycool = 4;                          /* flush the dialog click's buffered keys */
             if (r == 2) {                         /* #191: Edit changed the text (Paste/Select All) -
                                                      the menu saved-under, so just redraw the body,
                                                      smoothly, with the frame untouched (no flash) */
                 gb_curhide(); draw(); gb_curshow();
-            } else {                              /* File/View action (or a fallback picker): full repaint */
+            } else if (!run_launched) {           /* File/View action (or a fallback picker): full repaint */
+                win_title();                      /* Load/Save/Save As may have changed name or dirty flag */
                 gb_restore_parent();
             }
             return;
@@ -738,7 +749,12 @@ static void n_frame(void)
         c = gb_getkey();
         if (!c) break;
         if (c == K_QUIT) { gb_wm_close(); return; }
-        if (c == K_RUN) { do_run(0); gb_restore_parent(); return; }
+        if (c == K_RUN) {
+            run_launched = 0;
+            do_run(0);
+            if (!run_launched) gb_restore_parent();
+            return;
+        }
         if (c == K_BS || c == K_DEL) { del_back(); edited = 1; }
         else if (c == K_ENTER) { ins('\n'); edited = 1; }
         else if (c == K_TAB) { ins(' '); ins(' '); ins(' '); ins(' '); edited = 1; }
@@ -795,21 +811,28 @@ static const gb_mwin_t npmw = {
 void main(void)
 {
     unsigned char n;
+    char start_name[11];
 
     caret_vis = 1; blink_ctr = 0; arr_prev = 0; arr_rep = 0;
     gb_wm_managed(&npmw);                        /* register FIRST (no draw): captures our arg */
+    gb_get_name(start_name);                      /* raw launch arg before gb_doc may rename blank */
     gb_doc(&npdoc);                              /* standard File + Edit menus; adopts the name */
     gb_menu_add("Run", run_items, 1, do_run);    /* the whole point of GB-BASIC */
 /* (a RUNTEST hook lived here during M6 bring-up; removed for the shipping app) */
-    len = gb_fs_load(buf, NP_MAX + 256);        /* load the launch file (0 if none;
-                                                    +256: the loader's record gate
-                                                    counts the AMSDOS header) */
-    if (len > NP_MAX) len = NP_MAX;
-    len = strip_cr(len);                         /* .BAS in CR+LF -> edit as plain \n */
-    cur = len; view_first = 0;
-    sel_on = 0;                                  /* selection state (clipboard is shared now) */
+    if (name_is_bas(start_name)) {
+        len = gb_fs_load(buf, NP_MAX + 256);     /* load the launch file (0 if none;
+                                                     +256: the loader's record gate
+                                                     counts the AMSDOS header) */
+        if (len > NP_MAX) len = NP_MAX;
+        len = strip_cr(len);                     /* .BAS in CR+LF -> edit as plain \n */
+        if (len < NP_BUF) buf[len] = 0;
+        cur = len; view_first = 0; sel_on = 0;
+    } else {
+        np_new();                                /* direct BASIC.APP launch: start truly empty */
+    }
     win_title();                                 /* build wtitle before the first paint */
     for (n = 64; n; n--) if (!gb_getkey()) break;   /* drop buffered keys */
+    keycool = 10;                                /* drain late double-click/fire chars after launch */
 
     gb_restore_parent();                         /* first paint: WM chrome + n_draw */
 }
