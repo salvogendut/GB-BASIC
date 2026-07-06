@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# run_cpc.sh - launch a GB-BASIC app inside GEOBENCH on the 1984 emulator,
+# headless, and capture a screenshot. Click-free: the app is packed onto a
+# drive-B disk as SPIKE.SAV and a custom boot floppy (SAVER=B:SPIKE,
+# SAVERTIME=1) auto-launches it via the desktop's screensaver idle timer
+# ~3000 frames after the desktop is up.
+#
+#   tools/run_cpc.sh <app.RAW> <shot-frame> <out.ppm> [extra 1984 args...]
+#
+# Notes discovered the hard way (see docs/VERIFYING.md):
+#   - 1984 --joy-script silently caps the queue at 128 steps.
+#   - The FM double-click-to-open never triggers under scripted joystick fire;
+#     single clicks and the top-bar menus work. Hence the saver route.
+#   - A .BAS file argument can be given to the app by also packing it onto the
+#     B disk and having the app load it (BASRUN loads its launch file when
+#     started from the FM; as a saver it starts file-less -> BUILTIN_TEST).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+RAW="${1:?usage: run_cpc.sh <app.RAW> <shot-frame> <out.ppm>}"
+FRAME="${2:?shot frame (desktop ~2300, saver fires ~5400; use 6000+)}"
+OUT="${3:?output .ppm}"
+shift 3
+
+GEOBENCH="${GEOBENCH:-../geobench}"
+EMU="${EMU:-../1984/1984}"
+
+# --- boot floppy with the saver config (cached until geobench kernel changes) --
+if [ ! -f build/bootsav.dsk ] || [ "$GEOBENCH/kernel/gbkern.asm" -nt build/bootsav.dsk ]; then
+    printf 'FONT=DEFAULT\r\nICONS=REFINED\r\nCURSOR=DEFAULT\r\nVIEW=DEFAULT\r\nBACKDROP=SOLID\r\nWALLPAPER=LOGO\r\nSAVER=B:SPIKE\r\nSAVERTIME=1\r\n' \
+        > "$GEOBENCH/build/GEOBENCH.CFG"
+    ( cd "$GEOBENCH" && rm -f build/gbkern.dsk \
+        && rasm kernel/gbkern.asm -eo -DSTORAGE_ALBIREO=1 >/dev/null 2>&1 \
+        && rasm kernel/pack_apps.asm  >/dev/null 2>&1 \
+        && rasm kernel/pack_apps2.asm >/dev/null 2>&1 \
+        && rasm kernel/pack_apps3.asm >/dev/null 2>&1 )
+    cp "$GEOBENCH/build/gbkern.dsk" build/bootsav.dsk
+    echo "Rebuilt build/bootsav.dsk (SAVER=B:SPIKE boot floppy)"
+fi
+
+# --- drive-B disk: the app as SPIKE.SAV (+SPIKE.APP), plus any EXTRA files ----
+mkdir -p build
+cp "$RAW" build/_TEST.RAW
+{
+    echo '        org #4000'
+    echo 's0      incbin "_TEST.RAW"'
+    echo 's0e'
+    echo '        save "SPIKE.APP",s0,s0e-s0,DSK,"build/spike.dsk"'
+    echo '        save "SPIKE.SAV",s0,s0e-s0,DSK,"build/spike.dsk"'
+    n=1
+    for f in ${EXTRA_FILES:-}; do       # extra files (e.g. .BAS programs), 8.3 upper
+        base=$(basename "$f")
+        cp "$f" "build/_X$n.BIN"
+        echo "x$n      incbin \"_X$n.BIN\""
+        echo "x${n}e"
+        echo "        save \"$base\",x$n,x${n}e-x$n,DSK,\"build/spike.dsk\""
+        n=$((n+1))
+    done
+} > build/_pack.asm
+rm -f build/spike.dsk
+rasm build/_pack.asm -ob /dev/null >/dev/null 2>&1
+
+"$EMU" --config=/dev/null --6128 --memory=512 \
+    --disk-a=build/bootsav.dsk --disk-b=build/spike.dsk --autostart=GBKERN \
+    --screenshot-at="$FRAME:$OUT" --exit-after=$((FRAME+10)) "$@" 2>/dev/null || true
+[ -f "$OUT" ] && echo "Shot: $OUT" || { echo "NO SCREENSHOT PRODUCED" >&2; exit 1; }
