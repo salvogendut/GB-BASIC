@@ -18,14 +18,15 @@ static unsigned char n_nvars;
 
 num_t *var_slot(char n0, char n1)
 {
+    nvar_t *p = nvar;
     unsigned char i;
-    for (i = 0; i < n_nvars; i++)
-        if (nvar[i].n0 == n0 && nvar[i].n1 == n1) return &nvar[i].v;
-    if (n_nvars >= NVARS) { err(E_MEM); return &nvar[0].v; }
-    nvar[n_nvars].n0 = n0; nvar[n_nvars].n1 = n1;
-    nvar[n_nvars].v.b[0] = 0; nvar[n_nvars].v.b[1] = 0;
-    nvar[n_nvars].v.b[2] = 0; nvar[n_nvars].v.b[3] = 0;
-    return &nvar[n_nvars++].v;
+    for (i = 0; i < n_nvars; i++, p++)
+        if (p->n0 == n0 && p->n1 == n1) return &p->v;
+    if (n_nvars >= NVARS) { err(E_MEM); return &nvar->v; }
+    p->n0 = n0; p->n1 = n1;
+    p->v.b[0] = 0; p->v.b[1] = 0; p->v.b[2] = 0; p->v.b[3] = 0;
+    n_nvars++;
+    return &p->v;
 }
 
 /* ---- numeric arrays (1-D, bump-allocated float pool) --------------------------- */
@@ -37,16 +38,20 @@ static unsigned int apool_used;
 
 static arr_t *arr_create(char n0, char n1, unsigned int nelem)
 {
+    arr_t *a;
+    num_t *z;
     unsigned int i;
     if (n_arrs >= NARRS || apool_used + nelem > APOOL) { err(E_MEM); return 0; }
-    arr[n_arrs].n0 = n0; arr[n_arrs].n1 = n1;
-    arr[n_arrs].base = apool_used; arr[n_arrs].nelem = nelem;
-    for (i = 0; i < nelem; i++) {
-        num_t *z = &apool[apool_used + i];
+    a = &arr[n_arrs];
+    a->n0 = n0; a->n1 = n1;
+    a->base = apool_used; a->nelem = nelem;
+    z = apool + apool_used;
+    for (i = 0; i < nelem; i++, z++) {
         z->b[0] = 0; z->b[1] = 0; z->b[2] = 0; z->b[3] = 0;
     }
     apool_used += nelem;
-    return &arr[n_arrs++];
+    n_arrs++;
+    return a;
 }
 
 /* arr_dim: DIM A(n) - explicit creation; a second DIM is a Duplicate Definition */
@@ -62,25 +67,204 @@ void arr_dim(char n0, char n1, unsigned int nelem)
 num_t *arr_slot(char n0, char n1, int idx)
 {
     unsigned char i;
-    arr_t *a = 0;
-    for (i = 0; i < n_arrs; i++)
-        if (arr[i].n0 == n0 && arr[i].n1 == n1) { a = &arr[i]; break; }
-    if (!a) a = arr_create(n0, n1, 11);
-    if (!a) return &apool[0];
-    if (idx < 0 || (unsigned int)idx >= a->nelem) { err(E_SUBSC); return &apool[0]; }
-    return &apool[a->base + idx];
+    arr_t *a = arr;
+    for (i = 0; ; i++, a++) {
+        if (i >= n_arrs) { a = arr_create(n0, n1, 11); break; }
+        if (a->n0 == n0 && a->n1 == n1) break;
+    }
+    if (!a) return apool;
+    if (idx < 0 || (unsigned int)idx >= a->nelem) { err(E_SUBSC); return apool; }
+    return apool + a->base + idx;
 }
 
-/* ---- string variables (M4 fills these in) --------------------------------------- */
+/* ---- string variables (fixed low-RAM slots: n0,n1,len + SSTR_CAP bytes) ---------- */
+typedef struct { char n0, n1; unsigned char len; char d[SSTR_CAP]; } svar_t;
+#define svar ((svar_t *)LR_SVAR)
+static unsigned char n_svars;
+
+static svar_t *svar_slot(const char *n2)
+{
+    svar_t *p = svar;
+    unsigned char i;
+    for (i = 0; i < n_svars; i++, p++)
+        if (p->n0 == n2[0] && p->n1 == n2[1]) return p;
+    if (n_svars >= SVARS) { err(E_MEM); return svar; }
+    p->n0 = n2[0]; p->n1 = n2[1]; p->len = 0;
+    n_svars++;
+    return p;
+}
+
 void svar_get(const char *n2, val_t *v)
 {
-    (void)n2;
+    svar_t *p = svar;
+    unsigned char i;
     v->t = VT_STR; v->s = prog; v->sl = 0;          /* undefined -> "" */
+    for (i = 0; i < n_svars; i++, p++)
+        if (p->n0 == n2[0] && p->n1 == n2[1]) {
+            v->s = p->d;
+            v->sl = p->len;
+            return;
+        }
 }
 
-unsigned char str_func(val_t *v)                     /* string functions arrive in M4 */
+void svar_set(const char *n2, const val_t *v)
 {
-    (void)v;
+    svar_t *s = svar_slot(n2);
+    unsigned char i, n = v->sl;
+    if (g_err) return;
+    if (n > SSTR_CAP) n = SSTR_CAP;                 /* silently clamp (documented) */
+    for (i = 0; i < n; i++) s->d[i] = v->s[i];
+    s->len = n;
+}
+
+/* ---- string / string-arg functions (called from primary; 1 = consumed) ----------- */
+static unsigned char arg_open(void)
+{
+    sk();
+    if (*ip != '(') { err(E_SYNTAX); return 0; }
+    ip++;
+    return 1;
+}
+
+static unsigned char arg_more(void)                  /* ',' between args */
+{
+    sk();
+    if (*ip != ',') { err(E_SYNTAX); return 0; }
+    ip++;
+    return 1;
+}
+
+static unsigned char arg_close(void)
+{
+    sk();
+    if (*ip != ')') { err(E_SYNTAX); return 0; }
+    ip++;
+    return 1;
+}
+
+static unsigned char eval_str(val_t *v)
+{
+    eval(v);
+    if (g_err) return 0;
+    if (v->t != VT_STR) { err(E_TYPE); return 0; }
+    return 1;
+}
+
+unsigned char str_func(val_t *v)
+{
+    if (kw("CHR$")) {
+        val_t a;
+        char *d;
+        if (!arg_open()) return 1;
+        if (!eval_num(&a)) return 1;
+        if (!arg_close()) return 1;
+        d = strtmp_alloc(1);
+        if (g_err) return 1;
+        d[0] = (char)num_toi(&a.n);
+        FCHK();
+        v->t = VT_STR; v->s = d; v->sl = 1;
+        return 1;
+    }
+    if (kw("STR$")) {
+        val_t a;
+        char b[16], *d;
+        unsigned char n = 0;
+        if (!arg_open()) return 1;
+        if (!eval_num(&a)) return 1;
+        if (!arg_close()) return 1;
+        fmt_num(&a.n, b);
+        while (b[n]) n++;
+        d = strtmp_alloc(n);
+        if (g_err) return 1;
+        { unsigned char i; for (i = 0; i < n; i++) d[i] = b[i]; }
+        v->t = VT_STR; v->s = d; v->sl = n;
+        return 1;
+    }
+    if (kw("INKEY$")) {
+        v->t = VT_STR; v->s = strtmp; v->sl = 0;
+        if (pending_key) {
+            char *d = strtmp_alloc(1);
+            if (g_err) return 1;
+            d[0] = (char)pending_key;
+            pending_key = 0;
+            v->s = d; v->sl = 1;
+        }
+        return 1;
+    }
+    if (kw("LEFT$") || kw("RIGHT$") || kw("MID$")) {
+        /* the keyword is consumed; identify it by the letter 3 back from ip
+           (past the '$'): LEFT$ -> 'F', RIGHT$ -> 'H', MID$ -> 'I' */
+        char sel = ip[-3];
+        val_t s, a;
+        int i0, nn;
+        if (sel >= 'a') sel = (char)(sel - 32);
+        if (!arg_open()) return 1;
+        if (!eval_str(&s)) return 1;
+        if (!arg_more()) return 1;
+        if (!eval_num(&a)) return 1;
+        i0 = num_toi(&a.n);
+        FCHK();
+        v->t = VT_STR;
+        if (sel == 'I') {                            /* MID$(s$, i [, n]) */
+            nn = 255;
+            sk();
+            if (*ip == ',') {
+                ip++;
+                if (!eval_num(&a)) return 1;
+                nn = num_toi(&a.n);
+                FCHK();
+            }
+            if (!arg_close()) return 1;
+            if (i0 < 1 || nn < 0) { err(E_IFC); return 1; }
+            i0--;
+            if (i0 >= s.sl) { v->s = strtmp; v->sl = 0; return 1; }
+            if (nn > s.sl - i0) nn = s.sl - i0;
+            v->s = s.s + i0;
+            v->sl = (unsigned char)nn;
+            return 1;
+        }
+        if (!arg_close()) return 1;                  /* LEFT$/RIGHT$(s$, n) */
+        if (i0 < 0) { err(E_IFC); return 1; }
+        if (i0 > s.sl) i0 = s.sl;
+        v->s = (sel == 'H') ? s.s + (s.sl - i0) : s.s;
+        v->sl = (unsigned char)i0;
+        return 1;
+    }
+    if (kw("LEN")) {
+        val_t s;
+        if (!arg_open()) return 1;
+        if (!eval_str(&s)) return 1;
+        if (!arg_close()) return 1;
+        v->t = VT_NUM;
+        num_fromi(&v->n, (int)s.sl);
+        return 1;
+    }
+    if (kw("ASC")) {
+        val_t s;
+        if (!arg_open()) return 1;
+        if (!eval_str(&s)) return 1;
+        if (!arg_close()) return 1;
+        if (!s.sl) { err(E_IFC); return 1; }
+        v->t = VT_NUM;
+        num_fromi(&v->n, (unsigned char)s.s[0]);
+        return 1;
+    }
+    if (kw("VAL")) {
+        val_t s;
+        char b[20];
+        const char *p = b;
+        unsigned char n;
+        if (!arg_open()) return 1;
+        if (!eval_str(&s)) return 1;
+        if (!arg_close()) return 1;
+        n = (s.sl < 19) ? s.sl : 19;
+        { unsigned char i; for (i = 0; i < n; i++) b[i] = s.s[i]; }
+        b[n] = 0;
+        v->t = VT_NUM;
+        if (f_in(&p)) { f_st(&v->n); FCHK(); }
+        else num_fromi(&v->n, 0);
+        return 1;
+    }
     return 0;
 }
 
@@ -114,7 +298,7 @@ static void read_line_no(void)
 
 void run_reset(void)
 {
-    n_nvars = 0; n_arrs = 0; apool_used = 0;
+    n_nvars = 0; n_arrs = 0; apool_used = 0; n_svars = 0;
     for_sp = 0; gosub_sp = 0;
     data_ip = 0; data_scan_from = prog;
     g_err = 0; cur_line = 0;
@@ -326,10 +510,11 @@ static void st_for(void)
     *slot = v.n;
     if (!kw("TO")) { err(E_SYNTAX); return; }
     /* GW: re-using a loop variable discards the old frame (and any inner ones) */
-    for (i = 0; i < for_sp; i++)
-        if (fors[i].n0 == n2[0] && fors[i].n1 == n2[1]) { for_sp = i; break; }
+    f = fors;
+    for (i = 0; i < for_sp; i++, f++)
+        if (f->n0 == n2[0] && f->n1 == n2[1]) { for_sp = i; break; }
     if (for_sp >= FORS) { err(E_MEM); return; }
-    f = &fors[for_sp];
+    f = fors + for_sp;
     if (!eval_num(&v)) return;
     f->limit = v.n;
     if (kw("STEP")) {
@@ -550,6 +735,81 @@ static void st_stop(void)
     g_state = ST_END;
 }
 
+/* ---- INPUT ------------------------------------------------------------------------ */
+static const char *input_vars;         /* varlist position for input_store */
+
+/* INPUT ["prompt" ;|,] var[,var...] - prints the prompt, remembers the varlist,
+ * parks the interpreter in ST_INPUT; main.c's line editor calls input_store. */
+static void st_input(void)
+{
+    sk();
+    if (*ip == '"') {                   /* prompt literal */
+        ip++;
+        while (*ip && *ip != '"' && *ip != '\n') con_putc(*ip++);
+        if (*ip == '"') ip++;
+        sk();
+        if (*ip == ';') { ip++; con_puts("? "); }
+        else if (*ip == ',') ip++;
+        else { err(E_SYNTAX); return; }
+    } else {
+        con_puts("? ");
+    }
+    sk();
+    input_vars = ip;
+    skip_stmt();                        /* ip -> statement end; editor resumes there */
+    in_len = 0;
+    g_state = ST_INPUT;
+}
+
+/* input_store: parse inbuf against the remembered varlist. 1 = ok, 0 = redo. */
+unsigned char input_store(void)
+{
+    const char *save = ip;
+    const char *bp = inbuf;
+    unsigned char ok = 0;
+    inbuf[in_len] = 0;
+    ip = input_vars;
+    for (;;) {
+        char n2[2];
+        unsigned char is_str;
+        if (!get_ident(n2, &is_str)) goto out;
+        while (*bp == ' ') bp++;
+        if (is_str) {
+            val_t v;
+            const char *e;
+            v.t = VT_STR;
+            v.s = bp;
+            while (*bp && *bp != ',') bp++;
+            e = bp;
+            while (e > v.s && e[-1] == ' ') e--;
+            v.sl = (unsigned char)(e - v.s);
+            svar_set(n2, &v);
+        } else {
+            num_t *slot = var_slot(n2[0], n2[1]);   /* plain vars only (no A(i)) */
+            if (g_err) goto out;
+            if (!f_in(&bp)) goto out;
+            f_st(slot);
+            FCHK();
+            if (g_err) goto out;
+        }
+        sk();
+        if (*ip == ',') {               /* more variables: need a comma in the input */
+            ip++;
+            while (*bp == ' ') bp++;
+            if (*bp != ',') goto out;
+            bp++;
+            continue;
+        }
+        ok = 1;                         /* varlist done */
+        break;
+    }
+out:
+    g_err = 0;                          /* a redo, not a program error */
+    fac_err = 0;
+    ip = save;
+    return ok;
+}
+
 static void st_print(void)
 {
     unsigned char nl = 1;
@@ -633,12 +893,6 @@ static void st_let(void)
     }
 }
 
-void svar_set(const char *n2, const val_t *v)        /* M4 fills this in */
-{
-    (void)n2; (void)v;
-    err(E_TYPE);
-}
-
 /* ---- exec_stmt: one statement at ip ----------------------------------------------- */
 void exec_stmt(void)
 {
@@ -653,7 +907,7 @@ void exec_stmt(void)
     if (*ip == '\'') { skip_to_eol(); return; }
     {
         static const struct { const char *n; void (*f)(void); } STMT[] = {
-            { "PRINT", st_print }, { "REM", skip_to_eol }, { "IF", st_if },
+            { "PRINT", st_print }, { "INPUT", st_input }, { "REM", skip_to_eol }, { "IF", st_if },
             { "FOR", st_for }, { "NEXT", st_next }, { "GOTO", st_goto },
             { "GOSUB", st_gosub }, { "RETURN", st_return }, { "LET", st_let },
             { "DIM", st_dim }, { "DATA", skip_stmt }, { "READ", st_read },
@@ -662,7 +916,7 @@ void exec_stmt(void)
             { "STOP", st_stop }, { "END", finish_ok },
         };
         unsigned char i;
-        for (i = 0; i < 17; i++)
+        for (i = 0; i < 18; i++)
             if (kw(STMT[i].n)) { STMT[i].f(); return; }
     }
     /* implied LET (bare identifier) */

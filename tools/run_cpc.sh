@@ -16,6 +16,7 @@
 #     started from the FM; as a saver it starts file-less -> BUILTIN_TEST).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+export SDL_VIDEODRIVER=dummy   # headless: no emulator window on the user's screen
 
 RAW="${1:?usage: run_cpc.sh <app.RAW> <shot-frame> <out.ppm>}"
 FRAME="${2:?shot frame (desktop ~2300, saver fires ~5400; use 6000+)}"
@@ -45,6 +46,10 @@ if [ ! -f build/bootsav.dsk ] || [ "${FORCE_BOOTDSK:-0}" = "1" ]; then
 fi
 
 # --- drive-B disk: the app as SPIKE.SAV (+SPIKE.APP), plus any EXTRA files ----
+# BASRUN needs its float-engine overlay alongside; ship it whenever it exists.
+if [ -f build/BASRUN2.BIN ]; then
+    EXTRA_FILES="${EXTRA_FILES:-} build/BASRUN2.BIN"
+fi
 mkdir -p build
 cp "$RAW" build/_TEST.RAW
 {
@@ -66,7 +71,21 @@ cp "$RAW" build/_TEST.RAW
 rm -f build/spike.dsk
 rasm build/_pack.asm -ob /dev/null >/dev/null 2>&1
 
+# drive A gets the engine overlay too: a saver-launched BASRUN loads it via the
+# boot-drive lookup (the browse-drive fallback only applies to FM-launched apps)
+cp build/bootsav.dsk build/boota.dsk
+if [ -f build/BASRUN2.BIN ]; then
+    cp build/BASRUN2.BIN build/_ENG.BIN
+    {
+        echo '        org #4000'
+        echo 'e0      incbin "_ENG.BIN"'
+        echo 'e0e'
+        echo '        save "BASRUN2.BIN",e0,e0e-e0,DSK,"build/boota.dsk"'
+    } > build/_epack.asm
+    rasm build/_epack.asm -ob /dev/null >/dev/null 2>&1
+fi
+
 "$EMU" --config=/dev/null --6128 --memory=512 \
-    --disk-a=build/bootsav.dsk --disk-b=build/spike.dsk --autostart=GBKERN \
+    --disk-a=build/boota.dsk --disk-b=build/spike.dsk --autostart=GBKERN \
     --screenshot-at="$FRAME:$OUT" --exit-after=$((FRAME+10)) "$@" 2>/dev/null || true
 [ -f "$OUT" ] && echo "Shot: $OUT" || { echo "NO SCREENSHOT PRODUCED" >&2; exit 1; }

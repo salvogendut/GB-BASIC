@@ -16,7 +16,13 @@
 /* ---- console (grid/rowbuf live in low RAM - see basrun.h) ------------------- */
 static unsigned char dirty[CON_ROWS];
 unsigned char con_row, con_col;
+static char *con_ptr;                   /* cached &grid[row*COLS+col] */
 unsigned char scroll_count;
+
+static void con_seek(void)              /* recompute con_ptr (rare ops only) */
+{
+    con_ptr = grid + (unsigned int)con_row * CON_COLS + con_col;
+}
 
 /* ---- shared interpreter state ---------------------------------------------- */
 unsigned int prog_len;
@@ -25,6 +31,7 @@ unsigned int cur_line;
 unsigned char g_err;
 unsigned char g_state = ST_IDLE;
 unsigned char pending_key;
+unsigned char in_len;
 unsigned int frame_ctr;
 
 static unsigned char blink_ctr, blink_on;   /* input/end cursor blink */
@@ -36,17 +43,21 @@ void err(unsigned char code)
 
 void con_clear(void)
 {
+    char *p = grid;
     unsigned int i;
-    for (i = 0; i < CON_ROWS * CON_COLS; i++) grid[i] = ' ';
+    for (i = 0; i < CON_ROWS * CON_COLS; i++) *p++ = ' ';
     for (i = 0; i < CON_ROWS; i++) dirty[i] = 1;
     con_row = 0; con_col = 0;
+    con_ptr = grid;
 }
 
 static void scroll_up(void)
 {
+    char *d = grid;
+    const char *s = grid + CON_COLS;
     unsigned int i;
-    for (i = 0; i < (CON_ROWS - 1) * CON_COLS; i++) grid[i] = grid[i + CON_COLS];
-    for (i = (CON_ROWS - 1) * CON_COLS; i < CON_ROWS * CON_COLS; i++) grid[i] = ' ';
+    for (i = 0; i < (CON_ROWS - 1) * CON_COLS; i++) *d++ = *s++;
+    for (i = 0; i < CON_COLS; i++) *d++ = ' ';
     for (i = 0; i < CON_ROWS; i++) dirty[i] = 1;
     scroll_count++;
 }
@@ -56,11 +67,12 @@ void con_nl(void)
     con_col = 0;
     if (con_row < CON_ROWS - 1) con_row++;
     else scroll_up();
+    con_seek();
 }
 
 void con_putc(char c)
 {
-    grid[(unsigned int)con_row * CON_COLS + con_col] = c;
+    *con_ptr++ = c;
     dirty[con_row] = 1;
     if (++con_col >= CON_COLS) con_nl();
 }
@@ -94,6 +106,7 @@ void con_locate(unsigned char row, unsigned char col)
     if (row >= CON_ROWS) row = CON_ROWS - 1;
     if (col >= CON_COLS) col = CON_COLS - 1;
     con_row = row; con_col = col;
+    con_seek();
 }
 
 /* cursor cell rect (the underscore sits on the glyph's bottom row) */
@@ -106,13 +119,18 @@ static void cursor_draw(unsigned char pen)
 void con_flush(void)
 {
     unsigned char r, c, any = 0;
+    const char *g;
     for (r = 0; r < CON_ROWS; r++) if (dirty[r]) { any = 1; break; }
     if (!any) return;
     gb_curhide();
-    for (r = 0; r < CON_ROWS; r++) {
+    g = grid;
+    for (r = 0; r < CON_ROWS; r++, g += CON_COLS) {
+        char *d;
+        const char *s;
         if (!dirty[r]) continue;
         dirty[r] = 0;
-        for (c = 0; c < CON_COLS; c++) rowbuf[c] = grid[(unsigned int)r * CON_COLS + c];
+        d = rowbuf; s = g;
+        for (c = 0; c < CON_COLS; c++) *d++ = *s++;
         rowbuf[CON_COLS] = 0;
         gb_text(CX, (unsigned char)(CY + r * 8), rowbuf);
     }
@@ -122,28 +140,20 @@ void con_flush(void)
 /* ---- built-in test program (used when launched with no file argument) ------- */
 #ifndef BUILTIN_OFF
 static const char builtin[] =
-    "10 REM M3 TEST\n"
-    "20 S=0\n"
-    "30 FOR I=1 TO 10\n"
-    "40 S=S+I\n"
-    "50 NEXT I\n"
-    "60 PRINT \"SUM\";S\n"
-    "70 FOR J=10 TO 1 STEP -2:PRINT J;:NEXT\n"
-    "80 PRINT\n"
-    "90 IF S=55 THEN PRINT \"IF-OK\" ELSE PRINT \"IF-BAD\"\n"
-    "100 IF S<0 THEN PRINT \"BAD2\" ELSE PRINT \"ELSE-OK\"\n"
-    "110 GOSUB 200\n"
-    "120 DIM Q(20)\n"
-    "130 Q(15)=3.25:PRINT \"DIM\";Q(15)\n"
-    "140 READ A,C:PRINT \"DATA\";A;C\n"
-    "150 RESTORE:READ Z:PRINT \"RST\";Z\n"
-    "160 GOTO 220\n"
-    "170 PRINT \"SKIPPED\"\n"
-    "200 PRINT \"SUB\"\n"
-    "210 RETURN\n"
-    "220 PRINT \"GT-OK\"\n"
-    "230 DATA 42, 7.5\n"
-    "240 GOTO 999\n";
+    "10 REM M4 TEST\n"
+    "20 A$=\"HELLO\"\n"
+    "30 B$=A$+\", \"+\"WORLD\"\n"
+    "40 PRINT B$;\"!\"\n"
+    "50 PRINT \"LEN\";LEN(B$);\"ASC\";ASC(A$)\n"
+    "60 PRINT \"L/R/M \";LEFT$(B$,4);\"-\";RIGHT$(B$,5);\"-\";MID$(B$,4,4)\n"
+    "70 PRINT \"CHR\";CHR$(72);\" STR[\";STR$(42);\"]\";\" VAL\";VAL(\"3.5X\")\n"
+    "80 IF A$=\"HELLO\" THEN PRINT \"SCMP-OK\"\n"
+    "90 IF A$<\"IF\" THEN PRINT \"SLT-OK\"\n"
+    "100 INPUT \"NAME\";N$\n"
+    "110 PRINT \"HI, \";N$;\"!\"\n"
+    "120 INPUT \"TWO NUMS\";X,Y\n"
+    "130 PRINT \"SUM\";X+Y\n"
+    "140 END\n";
 #endif
 
 /* ---- state machine ---------------------------------------------------------- */
@@ -169,6 +179,52 @@ static void frame(void)
             if (g_err) { report_error(); break; }
         }
         break;
+    case ST_INPUT: {
+        unsigned char k = pending_key, n = 8;
+        pending_key = 0;
+        while (n--) {
+            if (!k) k = gb_getkey();
+            if (!k) break;
+            if (k == 0x03) {                      /* Ctrl-C */
+                con_nl(); con_puts("Break"); con_nl();
+                g_state = ST_END;
+                break;
+            }
+            if (k == 0x0D) {                      /* Enter */
+                cursor_draw(0);
+                con_nl();
+                if (input_store()) g_state = ST_RUN;
+                else {
+                    con_puts("?Redo from start");
+                    con_nl();
+                    con_puts("? ");
+                    in_len = 0;
+                }
+                break;
+            }
+            if (k == 0x08 || k == 0x7F) {         /* Backspace */
+                if (in_len && con_col) {
+                    cursor_draw(0);
+                    in_len--;
+                    con_col--;
+                    con_putc(' ');
+                    con_col--;
+                }
+            } else if (k >= 32 && k < 127 && in_len < INBUF &&
+                       con_col < CON_COLS - 1) {
+                inbuf[in_len++] = (char)k;
+                con_putc((char)k);
+            }
+            k = 0;
+        }
+        if (g_state == ST_INPUT && ++blink_ctr >= 16) {
+            blink_ctr = 0;
+            blink_on ^= 1;
+            gb_curhide();
+            cursor_draw((unsigned char)(blink_on ? 3 : 0));
+            gb_curshow();
+        }
+        break; }
     case ST_END:
         if (pending_key) { gb_wm_close(); return; }
         if (++blink_ctr >= 16) {          /* idle cursor blink */
@@ -266,8 +322,26 @@ static unsigned int strip_cr(unsigned int n)
 void main(void)
 {
     unsigned char n;
+    static char orig11[11];
     con_clear();
     gb_wm_managed(&mw);                             /* register FIRST: captures the file arg */
+    /* two-stage load: pull the float-engine overlay (BASRUN2.BIN) into low RAM
+       at LR_ENGINE by temporarily repointing our window's file argument */
+    gb_get_name(orig11);
+    gb_set_name("BASRUN2 BIN");
+    /* the floppy loader's size gate is on-disk 128-byte records INCLUDING the
+       AMSDOS header, and it writes whole 512B sectors - allow 0x0AC0 (sectors
+       spill into the not-yet-loaded program area, which is harmless) */
+    n = (unsigned char)(gb_fs_load((char *)LR_ENGINE, 0x0AC0) != 0);
+    gb_set_name(orig11);
+    if (!n || *(volatile unsigned char *)LR_ENGINE != 0xC3) {   /* jp = engine present */
+        con_puts("BASRUN2.BIN missing.");
+        con_nl();
+        g_state = ST_END;
+        gb_restore_parent();
+        return;
+    }
+    fac_err = 0;
     prog_len = gb_fs_load(prog, PROG_MAX);          /* launch .BAS file, 0 if none */
     prog_len = strip_cr(prog_len);
 #ifndef BUILTIN_OFF

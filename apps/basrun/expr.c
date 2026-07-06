@@ -144,11 +144,20 @@ char *strtmp_alloc(unsigned char n)
     { char *p = strtmp + strtmp_used; strtmp_used = (unsigned char)(strtmp_used + n); return p; }
 }
 
-/* rel_res: store a relational result (-1/0) into a val */
-static void rel_res(val_t *a, unsigned char true_)
+/* rel_op: store the relational result (-1/0) for comparator outcome r */
+static void rel_op(val_t *a, unsigned char op, signed char r)
 {
+    unsigned char t;
+    switch (op) {
+        case OP_EQ: t = (unsigned char)(r == 0); break;
+        case OP_NE: t = (unsigned char)(r != 0); break;
+        case OP_LT: t = (unsigned char)(r <  0); break;
+        case OP_GT: t = (unsigned char)(r >  0); break;
+        case OP_LE: t = (unsigned char)(r <= 0); break;
+        default:    t = (unsigned char)(r >= 0); break;
+    }
     a->t = VT_NUM;
-    num_fromi(&a->n, true_ ? -1 : 0);
+    num_fromi(&a->n, t ? -1 : 0);
 }
 
 static void apply(unsigned char op, val_t *a, const val_t *b)
@@ -169,15 +178,7 @@ static void apply(unsigned char op, val_t *a, const val_t *b)
             return;
         }
         if (op < OP_EQ || op > OP_GE) { err(E_TYPE); return; }
-        r = scmp(a, b);
-        switch (op) {
-            case OP_EQ: rel_res(a, (unsigned char)(r == 0)); break;
-            case OP_NE: rel_res(a, (unsigned char)(r != 0)); break;
-            case OP_LT: rel_res(a, (unsigned char)(r <  0)); break;
-            case OP_GT: rel_res(a, (unsigned char)(r >  0)); break;
-            case OP_LE: rel_res(a, (unsigned char)(r <= 0)); break;
-            default:    rel_res(a, (unsigned char)(r >= 0)); break;
-        }
+        rel_op(a, op, scmp(a, b));
         return;
     }
     switch (op) {
@@ -221,20 +222,11 @@ static void apply(unsigned char op, val_t *a, const val_t *b)
         }
         f_st(&a->n);
         break; }
-    default: {                                      /* numeric relationals */
-        signed char r;
+    default:                                        /* numeric relationals */
         f_ld(&a->n);
         f_arg(&b->n);
-        r = f_cmp();
-        switch (op) {
-            case OP_EQ: rel_res(a, (unsigned char)(r == 0)); break;
-            case OP_NE: rel_res(a, (unsigned char)(r != 0)); break;
-            case OP_LT: rel_res(a, (unsigned char)(r <  0)); break;
-            case OP_GT: rel_res(a, (unsigned char)(r >  0)); break;
-            case OP_LE: rel_res(a, (unsigned char)(r <= 0)); break;
-            default:    rel_res(a, (unsigned char)(r >= 0)); break;
-        }
-        break; }
+        rel_op(a, op, f_cmp());
+        break;
     }
     FCHK();
 }

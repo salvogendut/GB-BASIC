@@ -23,16 +23,16 @@
 #define CY        ((unsigned char)(gb_wm_y() + 16))
 
 /* ---- capacity knobs (fit-check ladder adjusts these) ---------------------- */
-#define PROG_MAX  4096            /* program text cap */
+#define PROG_MAX  1792            /* program text cap */
 #define PROG_SLK  512             /* gb_fs_load copies whole 512B sectors */
 #define NVARS     48              /* numeric scalars */
-#define SVARS     16              /* string variables */
-#define SSTR_CAP  40              /* max string length */
+#define SVARS     8               /* string variables */
+#define SSTR_CAP  31              /* max string length */
 #define NARRS     8               /* DIM'd arrays */
-#define APOOL     160             /* floats in the array pool */
+#define APOOL     64              /* floats in the array pool */
 #define FORS      8               /* FOR nesting */
-#define GOSUBS    12              /* GOSUB nesting */
-#define STRTMP    256             /* per-statement string scratch arena */
+#define GOSUBS    8               /* GOSUB nesting */
+#define STRTMP    232             /* per-statement string scratch arena */
 #define INBUF     64              /* INPUT line buffer */
 
 /* ---- big buffers live in kernel low RAM, not the 16K bank -------------------
@@ -42,8 +42,10 @@
  * into 0x2200 is the File Manager's own blessed pattern on every backend.
  * Caveat (documented in the README): file transfers performed by OTHER windows
  * while a program is running share this RAM and can disturb the program. */
-#define LR_BASE   0x2200
-#define LR_PROG   LR_BASE                                /* PROG_MAX + PROG_SLK  */
+#define LR_BASE     0x2200
+#define LR_ENGINE   LR_BASE          /* BASRUN2.BIN overlay: code 0x2200..0x2C5F */
+#define LR_ENGDATA  0x2C60           /* engine FAC/ARG state (fac_err first)     */
+#define LR_PROG     0x2CC0                               /* PROG_MAX + PROG_SLK  */
 #define LR_GRID   (LR_PROG + PROG_MAX + PROG_SLK)        /* CON_ROWS*CON_COLS    */
 #define LR_STRTMP (LR_GRID + CON_ROWS * CON_COLS)        /* STRTMP               */
 #define LR_INBUF  (LR_STRTMP + STRTMP)                   /* INBUF + 4            */
@@ -52,7 +54,8 @@
 #define LR_APOOL  (LR_NVAR + NVARS * 6)                  /* APOOL * 4            */
 #define LR_FORS   (LR_APOOL + APOOL * 4)                 /* FORS * 14            */
 #define LR_GOSUB  (LR_FORS + FORS * 14)                  /* GOSUBS * 4           */
-#define LR_END    (LR_GOSUB + GOSUBS * 4)                /* must stay < 0x3E00   */
+#define LR_SVAR   (LR_GOSUB + GOSUBS * 4)                /* SVARS * (SSTR_CAP+3) */
+#define LR_END    (LR_SVAR + SVARS * (SSTR_CAP + 3))     /* must stay < 0x3E00   */
 #define prog      ((char *)LR_PROG)
 #define grid      ((char *)LR_GRID)
 #define strtmp    ((char *)LR_STRTMP)
@@ -98,7 +101,7 @@ int  f_toi(void);                 /* FAC -> int16, round-to-nearest (destroys FA
 void f_fromi(int v);
 unsigned char f_in(const char **pp);   /* parse decimal at *pp -> FAC; 1 = digits */
 void f_out(char *dst);            /* GW-style format of FAC (destroys FAC/ARG) */
-extern volatile unsigned char fac_err; /* E_OVF / E_DIV0 latched by the engine */
+#define fac_err (*(volatile unsigned char *)LR_ENGDATA)  /* engine error latch */
 
 #define FCHK() do { if (fac_err) { err(fac_err); fac_err = 0; } } while (0)
 

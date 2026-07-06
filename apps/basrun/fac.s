@@ -21,6 +21,12 @@
 ;; f_floor adjust; f_toi/f_fromi convert 16-bit ints; f_in parses text via a
 ;; char** cursor; f_out formats GW-style. Errors (overflow, /0) latch into
 ;; fac_err (E_* codes from basrun.h) - C checks and clears it.
+;;
+;; OVERLAY: this file is NOT linked into the app. It is assembled standalone
+;; (tools/build_engine.sh) with _CODE at LR_ENGINE (0x2200) and _DATA at
+;; LR_ENGDATA (0x2C60), shipped as BASRUN2.BIN, and gb_fs_load-ed into low RAM
+;; by BASRUN's main(). The app calls in through the fixed vector table below
+;; (apps/basrun/facvec.s holds the matching in-bank thunks).
         .module fac
 
         .globl  _f_ld
@@ -71,6 +77,26 @@ DIGS:   .ds     7               ; format: decimal digits
 TMPB:   .ds     1
 
         .area   _CODE
+
+;; ---- fixed entry vectors (the overlay ABI; facvec.s jumps here) ---------------
+        jp      _f_ld           ; +0
+        jp      _f_arg          ; +3
+        jp      _f_st           ; +6
+        jp      _f_fac2arg      ; +9
+        jp      _f_add          ; +12
+        jp      _f_sub          ; +15
+        jp      _f_mul          ; +18
+        jp      _f_div          ; +21
+        jp      _f_cmp          ; +24
+        jp      _f_sgn          ; +27
+        jp      _f_neg          ; +30
+        jp      _f_exp          ; +33
+        jp      _f_scale        ; +36
+        jp      _f_floor        ; +39
+        jp      _f_toi          ; +42
+        jp      _f_fromi        ; +45
+        jp      _f_in           ; +48
+        jp      _f_out          ; +51
 
 ;; ---- load / store -----------------------------------------------------------
 

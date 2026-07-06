@@ -41,10 +41,11 @@ mkdir -p "$work" "$(dirname "$OUT")"
 CFLAGS="-mz80 --fomit-frame-pointer --opt-code-size --max-allocs-per-node 30000 ${APPDEFS:-} -I $GB -I $APP"
 
 APP_RELS=""
-for src in "$APP"/*.s; do                       # app-local asm (e.g. the float engine)
+for src in "$APP"/*.s; do                       # app-local asm (thunks etc.)
     [ -e "$src" ] || continue
-    rel="$work/$(basename "${src%.s}").rel"
-    "$SDAS" -o "$rel" "$src"
+    case "$src" in */fac.s) continue ;; esac    # the float engine is the BASRUN2.BIN
+    rel="$work/$(basename "${src%.s}").rel"     # overlay (tools/build_engine.sh), not
+    "$SDAS" -o "$rel" "$src"                    # linked into the app image
     APP_RELS="$APP_RELS $rel"
 done
 for src in "$APP"/*.c; do
