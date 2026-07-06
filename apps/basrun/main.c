@@ -122,21 +122,28 @@ void con_flush(void)
 /* ---- built-in test program (used when launched with no file argument) ------- */
 #ifndef BUILTIN_OFF
 static const char builtin[] =
-    "10 REM GB-BASIC M2 TEST\n"
-    "20 PRINT \"ARITH:\";1+2*3;(1+2)*3\n"
-    "30 PRINT \"DIV\";7/2;\"MOD\";17 MOD 5\n"
-    "40 PRINT \"NEG\";-5+2;\"PWR\";2^10\n"
-    "50 LET A=3.5\n"
-    "60 B=A*2+0.25\n"
-    "70 PRINT \"A=\";A;\"B=\";B\n"
-    "80 PRINT \"SQR\";SQR(2);\"SIN\";SIN(0.5)\n"
-    "90 D(3)=42.5\n"
-    "100 PRINT \"ARR\";D(3);D(2)\n"
-    "110 PRINT \"CMP\";1<2;2<1;3=3\n"
-    "120 PRINT 1E9;1/3,\"ZONE\"\n"
-    "130 PRINT \"TAB:\";TAB(20);\"HERE\"\n"
-    "140 PRINT \"DONE\"\n"
-    "150 END\n";
+    "10 REM M3 TEST\n"
+    "20 S=0\n"
+    "30 FOR I=1 TO 10\n"
+    "40 S=S+I\n"
+    "50 NEXT I\n"
+    "60 PRINT \"SUM\";S\n"
+    "70 FOR J=10 TO 1 STEP -2:PRINT J;:NEXT\n"
+    "80 PRINT\n"
+    "90 IF S=55 THEN PRINT \"IF-OK\" ELSE PRINT \"IF-BAD\"\n"
+    "100 IF S<0 THEN PRINT \"BAD2\" ELSE PRINT \"ELSE-OK\"\n"
+    "110 GOSUB 200\n"
+    "120 DIM Q(20)\n"
+    "130 Q(15)=3.25:PRINT \"DIM\";Q(15)\n"
+    "140 READ A,C:PRINT \"DATA\";A;C\n"
+    "150 RESTORE:READ Z:PRINT \"RST\";Z\n"
+    "160 GOTO 220\n"
+    "170 PRINT \"SKIPPED\"\n"
+    "200 PRINT \"SUB\"\n"
+    "210 RETURN\n"
+    "220 PRINT \"GT-OK\"\n"
+    "230 DATA 42, 7.5\n"
+    "240 GOTO 999\n";
 #endif
 
 /* ---- state machine ---------------------------------------------------------- */
@@ -186,10 +193,50 @@ static void draw(void)                    /* GB_MSG_DRAW: WM drew the chrome */
     con_flush();
 }
 
+/* drag_window: copied from geobench lib/gb/gbwin.c gb_drag_window (BSD) so
+ * BASRUN can link without the rest of gbwin (grip/resize - we are fixed-size). */
+static unsigned char drag_window(unsigned char *x, unsigned char *y,
+                                 unsigned char w, unsigned char h)
+{
+    unsigned char ox = *x, oy = *y;
+    unsigned char gdx = (unsigned char)(gb_mx() - ox);
+    unsigned char gdy = (unsigned char)(gb_my() - oy);
+    unsigned char xmax = (unsigned char)(GB_COLS - w);
+    unsigned char ymax = (unsigned char)(GB_LINES - h);
+    unsigned char nx, ny, mx, my, f, lifted = 0;
+
+    for (;;) {
+        f = gb_poll();
+        if (!(f & GB_FIRE)) break;
+        mx = gb_mx();
+        my = gb_my();
+        nx = (mx >= gdx) ? (unsigned char)(mx - gdx) : 0;
+        ny = (my >= gdy) ? (unsigned char)(my - gdy) : 0;
+        if (nx > xmax) nx = xmax;
+        if (ny < 8)    ny = 8;
+        if (ny > ymax) ny = ymax;
+        if (nx == ox && ny == oy) continue;
+        gb_curhide();
+        if (!lifted) { gb_fill(ox, oy, w, h, 0); lifted = 1; }
+        else gb_frame(ox, oy, w, h, 0);
+        ox = nx;
+        oy = ny;
+        gb_frame(ox, oy, w, h, 3);
+        gb_curshow();
+    }
+    if (!lifted) return 0;
+    gb_curhide();
+    gb_frame(ox, oy, w, h, 0);
+    gb_curshow();
+    *x = ox;
+    *y = oy;
+    return 1;
+}
+
 static void drag(void)
 {
     unsigned char x = gb_wm_x(), y = gb_wm_y();
-    if (gb_drag_window(&x, &y, WIN_W, WIN_H)) {
+    if (drag_window(&x, &y, WIN_W, WIN_H)) {
         gb_wm_setpos(x, y);
         gb_restore_parent();
     }

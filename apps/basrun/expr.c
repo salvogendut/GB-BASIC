@@ -259,6 +259,9 @@ static void arg_num(val_t *v)                       /* '(' numeric-expr ')' */
     expect(')');
 }
 
+static void fn_abs(void) { if (f_sgn() < 0) f_neg(); }
+static void fn_sgnv(void) { f_fromi(f_sgn()); }
+
 /* fn1: parse '(x)' and leave x in FAC. 1 = ok. */
 static unsigned char fn1(void)
 {
@@ -316,17 +319,21 @@ static void primary(val_t *v)
         num_fromi(&v->n, ~x);
         return;
     }
-    /* numeric functions (result comes back through FAC) */
-    if (kw("ABS")) {
-        if (fn1()) { if (f_sgn() < 0) f_neg(); f_st(&v->n); }
-        return;
+    /* numeric functions (FAC -> FAC), table-dispatched */
+    {
+        static const struct { const char *n; void (*f)(void); } NFN[] = {
+            { "ABS", fn_abs }, { "SGN", fn_sgnv }, { "INT", f_floor },
+            { "SQR", fn_sqr }, { "SIN", fn_sin }, { "COS", fn_cos },
+            { "TAN", fn_tan },
+        };
+        unsigned char i;
+        for (i = 0; i < 7; i++) {
+            if (kw(NFN[i].n)) {
+                if (fn1()) { NFN[i].f(); f_st(&v->n); FCHK(); }
+                return;
+            }
+        }
     }
-    if (kw("SGN")) { if (fn1()) num_fromi(&v->n, f_sgn()); return; }
-    if (kw("INT")) { if (fn1()) { f_floor(); f_st(&v->n); } return; }
-    if (kw("SQR")) { if (fn1()) { fn_sqr(); f_st(&v->n); FCHK(); } return; }
-    if (kw("SIN")) { if (fn1()) { fn_sin(); f_st(&v->n); FCHK(); } return; }
-    if (kw("COS")) { if (fn1()) { fn_cos(); f_st(&v->n); FCHK(); } return; }
-    if (kw("TAN")) { if (fn1()) { fn_tan(); f_st(&v->n); FCHK(); } return; }
     if (kw("RND")) {
         sk();
         if (*ip == '(') {
@@ -387,4 +394,13 @@ static void eval_bin(val_t *lhs, unsigned char minprec)
 void eval(val_t *v)
 {
     eval_bin(v, 1);
+}
+
+/* eval_num: evaluate a numeric expression; 0 on error/type mismatch */
+unsigned char eval_num(val_t *v)
+{
+    eval_bin(v, 1);
+    if (g_err) return 0;
+    if (v->t != VT_NUM) { err(E_TYPE); return 0; }
+    return 1;
 }

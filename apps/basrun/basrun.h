@@ -42,13 +42,22 @@
  * into 0x2200 is the File Manager's own blessed pattern on every backend.
  * Caveat (documented in the README): file transfers performed by OTHER windows
  * while a program is running share this RAM and can disturb the program. */
-#define prog     ((char *)0x2200)                    /* PROG_MAX + PROG_SLK */
-#define grid     ((char *)(0x2200 + PROG_MAX + PROG_SLK))          /* 800 B */
-#define strtmp   ((char *)(0x2200 + PROG_MAX + PROG_SLK + 800))    /* STRTMP */
-#define inbuf    ((char *)(0x2200 + PROG_MAX + PROG_SLK + 800 + STRTMP))
-#define rowbuf   ((char *)(0x2200 + PROG_MAX + PROG_SLK + 800 + STRTMP + INBUF + 4))
-/* rowbuf CON_COLS+1; total ends < 0x3E00 (clipboard) - static_assert by eye:
- * 0x2200 + 4608 + 800 + 256 + 68 + 45 = 0x38D5 */
+#define LR_BASE   0x2200
+#define LR_PROG   LR_BASE                                /* PROG_MAX + PROG_SLK  */
+#define LR_GRID   (LR_PROG + PROG_MAX + PROG_SLK)        /* CON_ROWS*CON_COLS    */
+#define LR_STRTMP (LR_GRID + CON_ROWS * CON_COLS)        /* STRTMP               */
+#define LR_INBUF  (LR_STRTMP + STRTMP)                   /* INBUF + 4            */
+#define LR_ROWBUF (LR_INBUF + INBUF + 4)                 /* CON_COLS + 4         */
+#define LR_NVAR   (LR_ROWBUF + CON_COLS + 4)             /* NVARS * 6            */
+#define LR_APOOL  (LR_NVAR + NVARS * 6)                  /* APOOL * 4            */
+#define LR_FORS   (LR_APOOL + APOOL * 4)                 /* FORS * 14            */
+#define LR_GOSUB  (LR_FORS + FORS * 14)                  /* GOSUBS * 4           */
+#define LR_END    (LR_GOSUB + GOSUBS * 4)                /* must stay < 0x3E00   */
+#define prog      ((char *)LR_PROG)
+#define grid      ((char *)LR_GRID)
+#define strtmp    ((char *)LR_STRTMP)
+#define inbuf     ((char *)LR_INBUF)
+#define rowbuf    ((char *)LR_ROWBUF)
 
 /* ---- interpreter states ---------------------------------------------------- */
 #define ST_IDLE   0               /* nothing loaded */
@@ -107,6 +116,7 @@ extern volatile unsigned char fac_err; /* E_OVF / E_DIV0 latched by the engine *
 #define E_MEM    10               /* Out of memory */
 #define E_STRSP  11               /* Out of string space */
 #define E_IFC    12               /* Illegal function call */
+#define E_DUPDEF 13               /* Duplicate Definition */
 
 /* ---- console (main.c) ------------------------------------------------------- */
 void con_clear(void);
@@ -142,6 +152,7 @@ unsigned char input_store(void);        /* parse inbuf -> INPUT vars; 1 = ok */
 
 /* expr.c */
 void eval(val_t *v);                    /* full expression at ip */
+unsigned char eval_num(val_t *v);       /* numeric expr; 0 = error raised */
 void sk(void);                          /* skip spaces */
 unsigned char kw(const char *k);        /* case-insensitive keyword match + skip */
 unsigned char at_end(void);             /* ip at ':' / newline / NUL */
@@ -152,6 +163,7 @@ extern unsigned char in_len;            /* INPUT editor fill (inbuf is low RAM) 
 
 /* interp.c storage (also used by expr.c) */
 num_t *arr_slot(char n0, char n1, int idx);      /* array element (auto-DIM 10) */
+void arr_dim(char n0, char n1, unsigned int nelem);   /* DIM A(n) */
 void svar_get(const char *n2, val_t *v);         /* string variable read */
 void svar_set(const char *n2, const val_t *v);   /* string variable write */
 unsigned char str_func(val_t *v);                /* string functions; 1 = consumed */

@@ -57,8 +57,11 @@ for src in "$APP"/*.c; do
     fi
 done
 
-"$SDCC" $CFLAGS -c "$GB/gbwin.c" -o "$work/gbwin.rel"
-DLG_REL="$work/gbwin.rel"
+DLG_REL=""
+if [ "${NOGBWIN:-0}" != "1" ]; then
+    "$SDCC" $CFLAGS -c "$GB/gbwin.c" -o "$work/gbwin.rel"
+    DLG_REL="$work/gbwin.rel"
+fi
 if [ "$DOC_FLAG" = "1" ]; then
     "$SDCC" $CFLAGS -c "$GB/gbui_stub.c" -o "$work/gbui_stub.rel"
     "$SDCC" $CFLAGS -c "$GB/gbdoc.c"     -o "$work/gbdoc.rel"
