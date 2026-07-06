@@ -4,3 +4,4 @@ dist/
 *.png
 !docs/**/*.png
 .geo-pin/
+__pycache__/
