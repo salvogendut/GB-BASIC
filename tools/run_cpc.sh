@@ -25,17 +25,23 @@ shift 3
 GEOBENCH="${GEOBENCH:-../geobench}"
 EMU="${EMU:-../1984/1984}"
 
-# --- boot floppy with the saver config (cached until geobench kernel changes) --
-if [ ! -f build/bootsav.dsk ] || [ "$GEOBENCH/kernel/gbkern.asm" -nt build/bootsav.dsk ]; then
+# --- boot floppy with the saver config -----------------------------------------
+# Built from a PINNED geobench worktree (build/geo-clean, at the HEAD this
+# project was verified against) so the user's in-progress geobench edits can't
+# break the harness. Seed it once with: git -C ../geobench worktree add --detach
+# build/geo-clean HEAD && cp -r ../geobench/build/* build/geo-clean/build/
+# Force a rebuild with FORCE_BOOTDSK=1 (e.g. after moving the pin).
+GEOK="${GEOK:-build/geo-clean}"
+if [ ! -f build/bootsav.dsk ] || [ "${FORCE_BOOTDSK:-0}" = "1" ]; then
     printf 'FONT=DEFAULT\r\nICONS=REFINED\r\nCURSOR=DEFAULT\r\nVIEW=DEFAULT\r\nBACKDROP=SOLID\r\nWALLPAPER=LOGO\r\nSAVER=B:SPIKE\r\nSAVERTIME=1\r\n' \
-        > "$GEOBENCH/build/GEOBENCH.CFG"
-    ( cd "$GEOBENCH" && rm -f build/gbkern.dsk \
+        > "$GEOK/build/GEOBENCH.CFG"
+    ( cd "$GEOK" && rm -f build/gbkern.dsk \
         && rasm kernel/gbkern.asm -eo -DSTORAGE_ALBIREO=1 >/dev/null 2>&1 \
         && rasm kernel/pack_apps.asm  >/dev/null 2>&1 \
         && rasm kernel/pack_apps2.asm >/dev/null 2>&1 \
         && rasm kernel/pack_apps3.asm >/dev/null 2>&1 )
-    cp "$GEOBENCH/build/gbkern.dsk" build/bootsav.dsk
-    echo "Rebuilt build/bootsav.dsk (SAVER=B:SPIKE boot floppy)"
+    cp "$GEOK/build/gbkern.dsk" build/bootsav.dsk
+    echo "Rebuilt build/bootsav.dsk (SAVER=B:SPIKE boot floppy, pinned worktree)"
 fi
 
 # --- drive-B disk: the app as SPIKE.SAV (+SPIKE.APP), plus any EXTRA files ----

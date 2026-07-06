@@ -12,17 +12,19 @@
 #include "basrun.h"
 
 /* ---- numeric scalars ---------------------------------------------------------- */
-typedef struct { char n0, n1; float v; } nvar_t;
+typedef struct { char n0, n1; num_t v; } nvar_t;
 static nvar_t nvar[NVARS];
 static unsigned char n_nvars;
 
-float *var_slot(char n0, char n1)
+num_t *var_slot(char n0, char n1)
 {
     unsigned char i;
     for (i = 0; i < n_nvars; i++)
         if (nvar[i].n0 == n0 && nvar[i].n1 == n1) return &nvar[i].v;
     if (n_nvars >= NVARS) { err(E_MEM); return &nvar[0].v; }
-    nvar[n_nvars].n0 = n0; nvar[n_nvars].n1 = n1; nvar[n_nvars].v = 0.0f;
+    nvar[n_nvars].n0 = n0; nvar[n_nvars].n1 = n1;
+    nvar[n_nvars].v.b[0] = 0; nvar[n_nvars].v.b[1] = 0;
+    nvar[n_nvars].v.b[2] = 0; nvar[n_nvars].v.b[3] = 0;
     return &nvar[n_nvars++].v;
 }
 
@@ -30,7 +32,7 @@ float *var_slot(char n0, char n1)
 typedef struct { char n0, n1; unsigned int base, nelem; } arr_t;
 static arr_t arr[NARRS];
 static unsigned char n_arrs;
-static float apool[APOOL];
+static num_t apool[APOOL];
 static unsigned int apool_used;
 
 static arr_t *arr_create(char n0, char n1, unsigned int nelem)
@@ -39,13 +41,16 @@ static arr_t *arr_create(char n0, char n1, unsigned int nelem)
     if (n_arrs >= NARRS || apool_used + nelem > APOOL) { err(E_MEM); return 0; }
     arr[n_arrs].n0 = n0; arr[n_arrs].n1 = n1;
     arr[n_arrs].base = apool_used; arr[n_arrs].nelem = nelem;
-    for (i = 0; i < nelem; i++) apool[apool_used + i] = 0.0f;
+    for (i = 0; i < nelem; i++) {
+        num_t *z = &apool[apool_used + i];
+        z->b[0] = 0; z->b[1] = 0; z->b[2] = 0; z->b[3] = 0;
+    }
     apool_used += nelem;
     return &arr[n_arrs++];
 }
 
 /* arr_slot: A(idx) - auto-DIM A(10) on first use, GW-style */
-float *arr_slot(char n0, char n1, int idx)
+num_t *arr_slot(char n0, char n1, int idx)
 {
     unsigned char i;
     arr_t *a = 0;
@@ -182,14 +187,16 @@ static void st_print(void)
             sk();
             if (*ip != ')') { err(E_SYNTAX); return; }
             ip++;
-            if (v.n >= 1.0f) con_tab_to((unsigned char)(v.n - 1.0f));
+            { int t = num_toi(&v.n);
+              FCHK();
+              if (t >= 1) con_tab_to((unsigned char)(t - 1)); }
         } else {
             val_t v;
             eval(&v);
             if (g_err) return;
             if (v.t == VT_STR) con_putsn(v.s, v.sl);
             else {
-                fmt_num(v.n, b);
+                fmt_num(&v.n, b);
                 con_puts(b);
                 con_putc(' ');                       /* GW: numbers get a trailing space */
             }
@@ -206,7 +213,7 @@ static void st_let(void)
 {
     char n2[2];
     unsigned char is_str;
-    float *slot;
+    num_t *slot;
 
     if (!get_ident(n2, &is_str)) { err(E_SYNTAX); return; }
     sk();
@@ -229,7 +236,7 @@ static void st_let(void)
         sk();
         if (*ip != ')') { err(E_SYNTAX); return; }
         ip++;
-        slot = arr_slot(n2[0], n2[1], (int)gb_floor(idx.n + 0.5f));
+        slot = arr_slot(n2[0], n2[1], num_toi(&idx.n));
     } else {
         slot = var_slot(n2[0], n2[1]);
     }

@@ -1,14 +1,14 @@
 /* expr.c - scanner + expression evaluator for BASRUN (precedence climbing).
  *
  * One recursive eval_bin keeps code size and Z80 stack depth down (we run on
- * the kernel's resident stack). Values are passed by pointer (val_t) - SDCC
- * struct-by-value is costly. String literals point INTO the program text
- * (zero copy). GW semantics: relationals yield -1/0; AND/OR/NOT/MOD work on
- * rounded 16-bit ints; ^ is right-associative with integer exponents only
- * (documented deviation: no fractional powers - keeps powf/expf/logf out).
+ * the kernel's resident stack). Values are passed by pointer (val_t); numbers
+ * are packed MBF handled entirely by the fac.s engine, so a numeric operation
+ * here is f_ld/f_arg + one engine call + f_st. String literals point INTO the
+ * program text (zero copy). GW semantics: relationals yield -1/0; AND/OR/NOT/
+ * MOD work on rounded 16-bit ints; ^ is right-associative with integer
+ * exponents only (documented deviation - keeps exp/log out of the bank).
  */
 #include "basrun.h"
-#include <math.h>
 
 void sk(void)
 {
@@ -118,24 +118,6 @@ static unsigned char get_op(void)
     return 0;
 }
 
-/* round a float to a 16-bit int (GW logical/MOD operand conversion) */
-static int to_i16(float f)
-{
-    long l = (long)(f + (f >= 0.0f ? 0.5f : -0.5f));
-    if (l < -32768L || l > 32767L) { err(E_OVF); return 0; }
-    return (int)l;
-}
-
-static void ovf_check(float f)
-{
-    if (f > 3.402e38f || f < -3.402e38f) err(E_OVF);
-}
-
-static void num2(const val_t *a, const val_t *b)   /* both must be numeric */
-{
-    if (a->t != VT_NUM || b->t != VT_NUM) err(E_TYPE);
-}
-
 /* strcmp on (ptr,len) pairs -> <0 / 0 / >0 */
 static signed char scmp(const val_t *a, const val_t *b)
 {
@@ -148,8 +130,7 @@ static signed char scmp(const val_t *a, const val_t *b)
     return (signed char)(a->sl < b->sl ? -1 : 1);
 }
 
-/* string temp arena (concat / CHR$ / STR$ results live one statement) */
-static char strtmp[STRTMP];
+/* string temp arena (in low RAM - see basrun.h) */
 static unsigned char strtmp_used;
 
 void strtmp_reset(void)
@@ -161,6 +142,13 @@ char *strtmp_alloc(unsigned char n)
 {
     if ((unsigned int)strtmp_used + n > STRTMP) { err(E_STRSP); return strtmp; }
     { char *p = strtmp + strtmp_used; strtmp_used = (unsigned char)(strtmp_used + n); return p; }
+}
+
+/* rel_res: store a relational result (-1/0) into a val */
+static void rel_res(val_t *a, unsigned char true_)
+{
+    a->t = VT_NUM;
+    num_fromi(&a->n, true_ ? -1 : 0);
 }
 
 static void apply(unsigned char op, val_t *a, const val_t *b)
@@ -182,61 +170,73 @@ static void apply(unsigned char op, val_t *a, const val_t *b)
         }
         if (op < OP_EQ || op > OP_GE) { err(E_TYPE); return; }
         r = scmp(a, b);
-        a->t = VT_NUM;
         switch (op) {
-            case OP_EQ: a->n = (r == 0) ? -1.0f : 0.0f; break;
-            case OP_NE: a->n = (r != 0) ? -1.0f : 0.0f; break;
-            case OP_LT: a->n = (r <  0) ? -1.0f : 0.0f; break;
-            case OP_GT: a->n = (r >  0) ? -1.0f : 0.0f; break;
-            case OP_LE: a->n = (r <= 0) ? -1.0f : 0.0f; break;
-            default:    a->n = (r >= 0) ? -1.0f : 0.0f; break;
+            case OP_EQ: rel_res(a, (unsigned char)(r == 0)); break;
+            case OP_NE: rel_res(a, (unsigned char)(r != 0)); break;
+            case OP_LT: rel_res(a, (unsigned char)(r <  0)); break;
+            case OP_GT: rel_res(a, (unsigned char)(r >  0)); break;
+            case OP_LE: rel_res(a, (unsigned char)(r <= 0)); break;
+            default:    rel_res(a, (unsigned char)(r >= 0)); break;
         }
         return;
     }
     switch (op) {
-    case OP_ADD: a->n = a->n + b->n; ovf_check(a->n); break;
-    case OP_SUB: a->n = a->n - b->n; ovf_check(a->n); break;
-    case OP_MUL: a->n = a->n * b->n; ovf_check(a->n); break;
-    case OP_DIV:
-        if (b->n == 0.0f) { err(E_DIV0); return; }
-        a->n = a->n / b->n; ovf_check(a->n);
-        break;
+    case OP_ADD: f_ld(&a->n); f_arg(&b->n); f_add(); f_st(&a->n); break;
+    case OP_SUB: f_ld(&a->n); f_arg(&b->n); f_sub(); f_st(&a->n); break;
+    case OP_MUL: f_ld(&a->n); f_arg(&b->n); f_mul(); f_st(&a->n); break;
+    case OP_DIV: f_ld(&a->n); f_arg(&b->n); f_div(); f_st(&a->n); break;
     case OP_MOD: {
-        int x = to_i16(a->n), y = to_i16(b->n);
-        if (g_err) return;
+        int x = num_toi(&a->n), y = num_toi(&b->n);
+        if (fac_err) break;
         if (y == 0) { err(E_DIV0); return; }
-        a->n = (float)(x % y);
+        num_fromi(&a->n, x % y);
         break; }
     case OP_AND: case OP_OR: {
-        int x = to_i16(a->n), y = to_i16(b->n);
-        if (g_err) return;
-        a->n = (float)(op == OP_AND ? (x & y) : (x | y));
+        int x = num_toi(&a->n), y = num_toi(&b->n);
+        if (fac_err) break;
+        num_fromi(&a->n, (int)(op == OP_AND ? (x & y) : (x | y)));
         break; }
     case OP_POW: {
-        float e = gb_floor(b->n), r = 1.0f, base = a->n;
-        int ei;
+        int e;
         unsigned char neg = 0;
-        if (e != b->n) { err(E_IFC); return; }      /* integer exponents only */
-        if (e < -64.0f || e > 64.0f) { err(E_OVF); return; }
-        ei = (int)e;
-        if (ei < 0) { neg = 1; ei = -ei; }
-        while (ei--) { r = r * base; ovf_check(r); if (g_err) return; }
-        if (neg) {
-            if (r == 0.0f) { err(E_DIV0); return; }
-            r = 1.0f / r;
+        static const num_t one = {{0x00, 0x00, 0x00, 0x81}};
+        f_ld(&b->n);
+        f_floor();
+        f_arg(&b->n);
+        if (f_cmp() != 0) { err(E_IFC); return; }   /* fractional exponent */
+        e = num_toi(&b->n);
+        if (fac_err) break;
+        if (e < 0) { neg = 1; e = -e; }
+        f_ld(&one);                                 /* running product in FAC */
+        f_arg(&a->n);                               /* base in ARG (f_mul preserves it) */
+        while (e--) {
+            f_mul();
+            if (fac_err) break;
         }
-        a->n = r;
+        if (neg) {                                  /* 1/r */
+            f_st(&a->n);
+            f_ld(&one);
+            f_arg(&a->n);
+            f_div();
+        }
+        f_st(&a->n);
         break; }
-    default:                                        /* relationals */
-        a->n = 0.0f - (float)(
-            (op == OP_EQ) ? (a->n == b->n) :
-            (op == OP_NE) ? (a->n != b->n) :
-            (op == OP_LT) ? (a->n <  b->n) :
-            (op == OP_GT) ? (a->n >  b->n) :
-            (op == OP_LE) ? (a->n <= b->n) : (a->n >= b->n));
-        break;
+    default: {                                      /* numeric relationals */
+        signed char r;
+        f_ld(&a->n);
+        f_arg(&b->n);
+        r = f_cmp();
+        switch (op) {
+            case OP_EQ: rel_res(a, (unsigned char)(r == 0)); break;
+            case OP_NE: rel_res(a, (unsigned char)(r != 0)); break;
+            case OP_LT: rel_res(a, (unsigned char)(r <  0)); break;
+            case OP_GT: rel_res(a, (unsigned char)(r >  0)); break;
+            case OP_LE: rel_res(a, (unsigned char)(r <= 0)); break;
+            default:    rel_res(a, (unsigned char)(r >= 0)); break;
+        }
+        break; }
     }
-    (void)num2;
+    FCHK();
 }
 
 /* ---- functions ----------------------------------------------------------------- */
@@ -259,10 +259,20 @@ static void arg_num(val_t *v)                       /* '(' numeric-expr ')' */
     expect(')');
 }
 
+/* fn1: parse '(x)' and leave x in FAC. 1 = ok. */
+static unsigned char fn1(void)
+{
+    val_t v;
+    arg_num(&v);
+    if (g_err) return 0;
+    f_ld(&v.n);
+    return 1;
+}
+
 static void primary(val_t *v)
 {
     char c;
-    v->t = VT_NUM; v->n = 0.0f;
+    v->t = VT_NUM;
     sk();
     c = *ip;
     if (c == '"') {                                  /* string literal (in prog text) */
@@ -275,7 +285,9 @@ static void primary(val_t *v)
         return;
     }
     if ((c >= '0' && c <= '9') || c == '.') {
-        if (!parse_num(&ip, &v->n)) err(E_SYNTAX);
+        if (!f_in(&ip)) err(E_SYNTAX);
+        f_st(&v->n);
+        FCHK();
         return;
     }
     if (c == '(') {
@@ -285,52 +297,49 @@ static void primary(val_t *v)
         expect(')');
         return;
     }
-    if (c == '-') { ip++; eval_bin(v, PREC[OP_POW]); if (v->t != VT_NUM) { err(E_TYPE); return; } v->n = -v->n; return; }
+    if (c == '-') {
+        ip++;
+        eval_bin(v, PREC[OP_POW]);
+        if (g_err) return;
+        if (v->t != VT_NUM) { err(E_TYPE); return; }
+        f_ld(&v->n); f_neg(); f_st(&v->n);
+        return;
+    }
     if (c == '+') { ip++; eval_bin(v, PREC[OP_POW]); if (v->t != VT_NUM) err(E_TYPE); return; }
     if (kw("NOT")) {
         int x;
         eval_bin(v, 3);
         if (g_err) return;
         if (v->t != VT_NUM) { err(E_TYPE); return; }
-        x = to_i16(v->n);
-        v->n = (float)(~x);
+        x = num_toi(&v->n);
+        FCHK();
+        num_fromi(&v->n, ~x);
         return;
     }
-    /* functions */
-    if (kw("ABS")) { arg_num(v); if (v->n < 0.0f) v->n = -v->n; return; }
-    if (kw("SGN")) { arg_num(v); v->n = (v->n > 0.0f) ? 1.0f : (v->n < 0.0f) ? -1.0f : 0.0f; return; }
-    if (kw("INT")) { arg_num(v); v->n = gb_floor(v->n); return; }
-    if (kw("SQR")) {
-        arg_num(v);
-        if (g_err) return;
-        if (v->n < 0.0f) { err(E_IFC); return; }
-        v->n = sqrtf(v->n);
+    /* numeric functions (result comes back through FAC) */
+    if (kw("ABS")) {
+        if (fn1()) { if (f_sgn() < 0) f_neg(); f_st(&v->n); }
         return;
     }
-    if (kw("SIN")) { arg_num(v); v->n = sinf(v->n); return; }
-    if (kw("COS")) { arg_num(v); v->n = cosf(v->n); return; }
-    if (kw("TAN")) {
-        float cs;
-        arg_num(v);
-        if (g_err) return;
-        cs = cosf(v->n);
-        if (cs == 0.0f) { err(E_OVF); return; }
-        v->n = sinf(v->n) / cs;
-        return;
-    }
+    if (kw("SGN")) { if (fn1()) num_fromi(&v->n, f_sgn()); return; }
+    if (kw("INT")) { if (fn1()) { f_floor(); f_st(&v->n); } return; }
+    if (kw("SQR")) { if (fn1()) { fn_sqr(); f_st(&v->n); FCHK(); } return; }
+    if (kw("SIN")) { if (fn1()) { fn_sin(); f_st(&v->n); FCHK(); } return; }
+    if (kw("COS")) { if (fn1()) { fn_cos(); f_st(&v->n); FCHK(); } return; }
+    if (kw("TAN")) { if (fn1()) { fn_tan(); f_st(&v->n); FCHK(); } return; }
     if (kw("RND")) {
         sk();
         if (*ip == '(') {
-            val_t a;
-            arg_num(&a);
-            if (g_err) return;
-            if (a.n < 0.0f) { rnd_seed((unsigned int)(-a.n)); v->n = rnd_next(); }
-            else if (a.n == 0.0f) v->n = rnd_repeat();
-            else v->n = rnd_next();
-        } else v->n = rnd_next();
+            signed char s;
+            if (!fn1()) return;
+            s = f_sgn();
+            if (s < 0) { f_neg(); rnd_seed((unsigned int)f_toi()); }
+            rnd_fac(s);
+        } else rnd_fac(1);
+        f_st(&v->n);
         return;
     }
-    if (str_func(v)) return;                        /* M4: string funcs (interp.c owns svars) */
+    if (str_func(v)) return;                        /* string functions (interp.c) */
     /* variable */
     {
         char n2[2];
@@ -339,20 +348,20 @@ static void primary(val_t *v)
         sk();
         if (!is_str && *ip == '(') {                 /* array element */
             val_t idx;
-            float *slot;
+            num_t *slot;
             ip++;
             eval_bin(&idx, 1);
             if (g_err) return;
             if (idx.t != VT_NUM) { err(E_TYPE); return; }
             expect(')');
             if (g_err) return;
-            slot = arr_slot(n2[0], n2[1], (int)gb_floor(idx.n + 0.5f));
+            slot = arr_slot(n2[0], n2[1], num_toi(&idx.n));
             if (g_err) return;
             v->n = *slot;
             return;
         }
         if (is_str) {
-            svar_get(n2, v);                         /* string variable (M4) */
+            svar_get(n2, v);                         /* string variable */
             return;
         }
         v->n = *var_slot(n2[0], n2[1]);

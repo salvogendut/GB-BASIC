@@ -10,7 +10,7 @@ all: cpc msx
 # --- CPC ---------------------------------------------------------------------
 raws:
 	DOC=1 DATA_LOC=0x6BF0 bash tools/build_app.sh apps/basic  build/BASIC.RAW
-	DATA_LOC=0x6800       bash tools/build_app.sh apps/basrun build/BASRUN.RAW
+	DATA_LOC=0x7800       bash tools/build_app.sh apps/basrun build/BASRUN.RAW
 
 dsk-cpc: raws
 	bash tools/build_cpc_dsk.sh
@@ -20,7 +20,7 @@ cpc: dsk-cpc
 # --- MSX ---------------------------------------------------------------------
 raws-msx:
 	APPDEFS=-DGB_MSX2 DOC=1 DATA_LOC=0x6BF0 bash tools/build_app.sh apps/basic  build/msx/BASIC.RAW
-	APPDEFS=-DGB_MSX2       DATA_LOC=0x6800 bash tools/build_app.sh apps/basrun build/msx/BASRUN.RAW
+	APPDEFS=-DGB_MSX2       DATA_LOC=0x7800 bash tools/build_app.sh apps/basrun build/msx/BASRUN.RAW
 
 dsk-msx: raws-msx
 	bash tools/build_msx_dsk.sh

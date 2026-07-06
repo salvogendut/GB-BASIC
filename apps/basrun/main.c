@@ -13,15 +13,12 @@
  * the test harness) it falls back to the BUILTIN test program. */
 #include "basrun.h"
 
-/* ---- console --------------------------------------------------------------- */
-static char grid[CON_ROWS * CON_COLS];
+/* ---- console (grid/rowbuf live in low RAM - see basrun.h) ------------------- */
 static unsigned char dirty[CON_ROWS];
 unsigned char con_row, con_col;
 unsigned char scroll_count;
-static char rowbuf[CON_COLS + 1];
 
 /* ---- shared interpreter state ---------------------------------------------- */
-char prog[PROG_MAX + PROG_SLK];
 unsigned int prog_len;
 const char *ip;
 unsigned int cur_line;

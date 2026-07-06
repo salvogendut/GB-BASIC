@@ -34,6 +34,7 @@
         .globl  _f_cmp
         .globl  _f_sgn
         .globl  _f_neg
+        .globl  _f_exp
         .globl  _f_scale
         .globl  _f_floor
         .globl  _f_toi
@@ -653,6 +654,14 @@ _f_sgn:
         or      a
         jr      nz, cp_lt
         jr      cp_gt
+
+;; signed char f_exp(void)  - A = FAC's binary exponent (FEXP - 128); 0 for 0.
+_f_exp:
+        ld      a, (FEXP)
+        or      a
+        ret     z
+        sub     #128
+        ret
 
 ;; void f_neg(void)
 _f_neg:

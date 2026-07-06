@@ -38,7 +38,7 @@ mkdir -p "$work" "$(dirname "$OUT")"
 # scratch and firmware calls preserve IY, so a kernel call can't wreck the app's
 # frame pointer (SDCC's epilogue is `ld sp,<fp>`). Must be uniform across ALL
 # units, and APPDEFS must reach every unit too (geobench #287).
-CFLAGS="-mz80 --fomit-frame-pointer ${APPDEFS:-} -I $GB -I $APP"
+CFLAGS="-mz80 --fomit-frame-pointer --opt-code-size --max-allocs-per-node 30000 ${APPDEFS:-} -I $GB -I $APP"
 
 APP_RELS=""
 for src in "$APP"/*.s; do                       # app-local asm (e.g. the float engine)
