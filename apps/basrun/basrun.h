@@ -55,6 +55,16 @@
 #define LR_FORS   (LR_APOOL + APOOL * 4)                 /* FORS * 14            */
 #define LR_GOSUB  (LR_FORS + FORS * 14)                  /* GOSUBS * 4           */
 #define LR_SVAR   (LR_GOSUB + GOSUBS * 4)                /* SVARS * (SSTR_CAP+3) */
+
+/* Run handoff (RAM, no disk): the editor (BASIC.APP) writes the program here and
+ * launches BASRUN, which copies it to prog[] instead of loading a .BAS - so Run
+ * needs no save/filename. The cells sit ABOVE the engine-load transient (the CPC
+ * AMSDOS loader reads whole sectors incl. the 128-byte header, up to ~0x3000)
+ * and get consumed once, so a later file-launch can't misread stale RAM. These
+ * literals are duplicated in apps/basic/main.c - keep them in sync. */
+#define HANDOFF_MAGIC ((volatile unsigned char *)0x3400)  /* "GBRN" set by editor */
+#define HANDOFF_LEN   (*(volatile unsigned int *)0x3404)  /* program length       */
+#define HANDOFF_PROG  ((char *)0x3410)                    /* program text (\n)    */
 #define LR_END    (LR_SVAR + SVARS * (SSTR_CAP + 3))     /* must stay < 0x3E00   */
 #define prog      ((char *)LR_PROG)
 #define grid      ((char *)LR_GRID)

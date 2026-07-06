@@ -463,77 +463,35 @@ static void paste_clip(void)
 }
 
 /* ---- Run (GB-BASIC) ---------------------------------------------------------
- * Auto-save the program (asking for a name only if UNTITLED), position the
- * kernel's current dir entry on the saved file (that entry becomes the new
- * window's file argument), then launch the BASRUN.APP interpreter. */
-static char run_name[16];
-
-static void to83(const char *s, char *n11)      /* "NAME[.EXT]" -> 11-byte 8.3 */
-{
-    unsigned char i = 0, j;
-    for (j = 0; j < 11; j++) n11[j] = ' ';
-    for (j = 0; j < 8 && s[i] && s[i] != '.'; j++) n11[j] = s[i++];
-    while (s[i] && s[i] != '.') i++;
-    if (s[i] == '.') {
-        i++;
-        for (j = 8; j < 11 && s[i]; j++) n11[j] = s[i++];
-    } else {                                     /* default the extension */
-        n11[8] = 'B'; n11[9] = 'A'; n11[10] = 'S';
-    }
-}
-
-static unsigned char name_is(const char *a, const char *b)   /* 11-byte compare */
-{
-    unsigned char i;
-    for (i = 0; i < 11; i++) if (a[i] != b[i]) return 0;
-    return 1;
-}
+ * RUN hands the program to BASRUN through shared kernel low RAM and launches it -
+ * it does NOT save to disk. That's how BASIC's RUN has always worked: it just
+ * runs, with no "Save as" prompt and no filename needed. Use File > Save to keep
+ * your work on disk.
+ *
+ * The handoff cells are duplicated from apps/basrun/basrun.h (keep in sync): the
+ * program (edited as plain \n) goes to HANDOFF_PROG, its length to HANDOFF_LEN,
+ * and a "GBRN" signature to HANDOFF_MAGIC; BASRUN copies it to its program buffer
+ * and consumes the signature. The cells sit above the engine-load transient so
+ * BASRUN's own startup load can't clobber them. */
+#define HANDOFF_MAGIC ((volatile unsigned char *)0x3400)
+#define HANDOFF_LEN   (*(volatile unsigned int *)0x3404)
+#define HANDOFF_PROG  ((char *)0x3410)
 
 static void do_run(unsigned char item)
 {
-    const char *nm;
-    char n11[11];                                /* the file's real 11-byte 8.3 name */
-    unsigned char i;
+    unsigned int i, j = 0;
     (void)item;
     if (gb_wm_full()) {
-        gb_alert("No free window for BASRUN.", "Close a window and retry.");
+        gb_alert("No free window to Run.", "Close a window and retry.");
         return;
     }
-    nm = gb_doc_name();
-    if (nm[0] == 'U' && nm[1] == 'N' && nm[2] == 'T' && nm[3] == 'I') {
-        /* UNTITLED: pick a folder + name first (mirrors gbdoc's Save As) */
-        if (!gb_pickdir(np_exts)) return;
-        if (!gb_prompt("Save as:", run_name, 12)) return;
-        to83(run_name, n11);
-        gb_set_name(n11);                        /* kernel arg = the chosen name */
-    } else {
-        for (i = 0; i < 11; i++) n11[i] = nm[i]; /* already named: gb_doc + kernel agree */
-    }
-    {                                            /* save (CR/LF round-trip) */
-        unsigned int n = np_save();
-        unsigned char ok = gb_fs_save(buf, n);
-        np_saved();
-        if (!ok) {
-            gb_alert("Save failed -", "is the disk writable?");
-            return;
-        }
-    }
-    {                                            /* position fs_ent_name on the file
-                                                    (match n11, NOT gb_doc_name(): after a
-                                                    Save As the two differ - g_name stays
-                                                    UNTITLED since we set only the kernel arg) */
-        char *e = gb_dir1();
-        unsigned char found = 0;
-        while (e) {
-            if (name_is(gb_entname(), n11)) { found = 1; break; }
-            e = gb_dirn();
-        }
-        if (!found) {
-            gb_alert("Saved, but the file was not", "found for launching.");
-            return;
-        }
-    }
-    gb_wm_launch_as("BASRUN  APP");
+    for (i = 0; i < len && j < NP_MAX; i++)      /* buf is plain \n (CR stripped on load) */
+        HANDOFF_PROG[j++] = buf[i];
+    HANDOFF_PROG[j] = 0;
+    HANDOFF_LEN = j;
+    HANDOFF_MAGIC[0] = 'G'; HANDOFF_MAGIC[1] = 'B';
+    HANDOFF_MAGIC[2] = 'R'; HANDOFF_MAGIC[3] = 'N';
+    gb_wm_open("BASRUN  APP");                    /* file-less launch; BASRUN uses the RAM copy */
 }
 
 static const char *const run_items[] = { "Run" };

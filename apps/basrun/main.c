@@ -339,16 +339,33 @@ void main(void)
         return;
     }
     fac_err = 0;
-    prog_len = gb_fs_load(prog, PROG_MAX);          /* launch .BAS file, 0 if none */
-    prog_len = strip_cr(prog_len);
+    if (HANDOFF_MAGIC[0] == 'G' && HANDOFF_MAGIC[1] == 'B' &&
+        HANDOFF_MAGIC[2] == 'R' && HANDOFF_MAGIC[3] == 'N') {
+        /* Run from the editor: the program is already in RAM (plain \n). Copy it
+           down into prog[] (the engine load above may have touched the low end)
+           and consume the magic so a later file-launch won't reuse it. */
+        unsigned int i, hn = HANDOFF_LEN;
+        if (hn > PROG_MAX) hn = PROG_MAX;
+        for (i = 0; i < hn; i++) prog[i] = HANDOFF_PROG[i];
+        prog[hn] = 0;
+        prog_len = hn;
+        HANDOFF_MAGIC[0] = 0;
+    } else {
+        prog_len = gb_fs_load(prog, PROG_MAX);      /* launch .BAS file, 0 if none */
+        prog_len = strip_cr(prog_len);
 #ifndef BUILTIN_OFF
-    if (prog_len == 0) {                            /* file-less (saver/test) -> builtin */
-        unsigned int i;
-        for (i = 0; builtin[i]; i++) prog[i] = builtin[i];
-        prog[i] = 0;
-        prog_len = i;
-    }
+        if (prog_len == 0) {                        /* file-less (saver/test) -> builtin */
+            unsigned int i;
+            for (i = 0; builtin[i]; i++) prog[i] = builtin[i];
+            prog[i] = 0;
+            prog_len = i;
+        }
 #endif
+    }
+    con_clear();                                    /* blank console AFTER the loads
+                                                       (a file load can spill sectors into
+                                                       the grid area) so a program without
+                                                       CLS starts on a clean screen */
     if (prog_len) {
         run_reset();
         g_state = ST_RUN;
