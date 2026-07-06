@@ -122,28 +122,25 @@ void con_flush(void)
     gb_curshow();
 }
 
-/* ---- M1 built-in demo (replaced by the interpreter from M2 on) -------------- */
-static unsigned char demo_i;
-
-static void demo_step(void)
-{
-    if (demo_i < 30) {
-        char msg[24];
-        unsigned char n = (unsigned char)(demo_i + 1), j = 0;
-        const char *t = "CONSOLE TEST LINE ";
-        while (*t) msg[j++] = *t++;
-        if (n >= 10) msg[j++] = (char)('0' + n / 10);
-        msg[j++] = (char)('0' + n % 10);
-        msg[j] = 0;
-        con_puts(msg);
-        con_nl();
-        demo_i++;
-        return;
-    }
-    con_puts("Ok");
-    con_nl();
-    g_state = ST_END;
-}
+/* ---- built-in test program (used when launched with no file argument) ------- */
+#ifndef BUILTIN_OFF
+static const char builtin[] =
+    "10 REM GB-BASIC M2 TEST\n"
+    "20 PRINT \"ARITH:\";1+2*3;(1+2)*3\n"
+    "30 PRINT \"DIV\";7/2;\"MOD\";17 MOD 5\n"
+    "40 PRINT \"NEG\";-5+2;\"PWR\";2^10\n"
+    "50 LET A=3.5\n"
+    "60 B=A*2+0.25\n"
+    "70 PRINT \"A=\";A;\"B=\";B\n"
+    "80 PRINT \"SQR\";SQR(2);\"SIN\";SIN(0.5)\n"
+    "90 D(3)=42.5\n"
+    "100 PRINT \"ARR\";D(3);D(2)\n"
+    "110 PRINT \"CMP\";1<2;2<1;3=3\n"
+    "120 PRINT 1E9;1/3,\"ZONE\"\n"
+    "130 PRINT \"TAB:\";TAB(20);\"HERE\"\n"
+    "140 PRINT \"DONE\"\n"
+    "150 END\n";
+#endif
 
 /* ---- state machine ---------------------------------------------------------- */
 static void frame(void)
@@ -161,9 +158,12 @@ static void frame(void)
     switch (g_state) {
     case ST_RUN:
         scroll_count = 0;
-        budget = 4;                       /* M1: a few demo lines per frame */
-        while (budget-- && g_state == ST_RUN && scroll_count < 4)
-            demo_step();
+        budget = 24;                      /* statements per frame (desktop stays live) */
+        while (budget-- && g_state == ST_RUN && scroll_count < 4) {
+            strtmp_reset();
+            exec_stmt();
+            if (g_err) { report_error(); break; }
+        }
         break;
     case ST_END:
         if (pending_key) { gb_wm_close(); return; }
@@ -210,13 +210,38 @@ static void proc(void)
 
 static const gb_mwin_t mw = { WIN_X, WIN_Y, WIN_W, WIN_H, 0, 0, proc, "GB-BASIC" };
 
+/* strip_cr: drop every \r in prog[0..n), NUL-terminate; returns new length. */
+static unsigned int strip_cr(unsigned int n)
+{
+    unsigned int i, j = 0;
+    for (i = 0; i < n; i++) if (prog[i] != '\r') prog[j++] = prog[i];
+    prog[j] = 0;
+    return j;
+}
+
 void main(void)
 {
     unsigned char n;
     con_clear();
-    g_state = ST_RUN;
-    demo_i = 0;
-    gb_wm_managed(&mw);
+    gb_wm_managed(&mw);                             /* register FIRST: captures the file arg */
+    prog_len = gb_fs_load(prog, PROG_MAX);          /* launch .BAS file, 0 if none */
+    prog_len = strip_cr(prog_len);
+#ifndef BUILTIN_OFF
+    if (prog_len == 0) {                            /* file-less (saver/test) -> builtin */
+        unsigned int i;
+        for (i = 0; builtin[i]; i++) prog[i] = builtin[i];
+        prog[i] = 0;
+        prog_len = i;
+    }
+#endif
+    if (prog_len) {
+        run_reset();
+        g_state = ST_RUN;
+    } else {
+        con_puts("No program.");
+        con_nl();
+        g_state = ST_END;
+    }
     for (n = 64; n; n--) if (!gb_getkey()) break;   /* drop buffered keys */
     gb_restore_parent();                            /* first paint */
 }

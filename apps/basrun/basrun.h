@@ -104,13 +104,23 @@ void eval(val_t *v);                    /* full expression at ip */
 void sk(void);                          /* skip spaces */
 unsigned char kw(const char *k);        /* case-insensitive keyword match + skip */
 unsigned char at_end(void);             /* ip at ':' / newline / NUL */
+unsigned char get_ident(char *n2, unsigned char *is_str);
+void strtmp_reset(void);                /* reset the per-statement string arena */
+char *strtmp_alloc(unsigned char n);
 extern char inbuf[INBUF + 1];
 extern unsigned char in_len;
+
+/* interp.c storage (also used by expr.c) */
+float *arr_slot(char n0, char n1, int idx);      /* array element (auto-DIM 10) */
+void svar_get(const char *n2, val_t *v);         /* string variable read */
+void svar_set(const char *n2, const val_t *v);   /* string variable write */
+unsigned char str_func(val_t *v);                /* string functions; 1 = consumed */
 
 /* val.c */
 void fmt_num(float f, char *dst);       /* GW-style number formatting (dst >= 16) */
 unsigned char parse_num(const char **p, float *out);  /* 1 = a number was read */
 float rnd_next(void);
+float rnd_repeat(void);
 void rnd_seed(unsigned int s);
 float gb_floor(float f);                /* floor (GW INT semantics) */
 

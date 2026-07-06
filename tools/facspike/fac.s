@@ -1,0 +1,1 @@
+../../apps/basrun/fac.s

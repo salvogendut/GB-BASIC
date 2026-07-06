@@ -41,6 +41,12 @@ mkdir -p "$work" "$(dirname "$OUT")"
 CFLAGS="-mz80 --fomit-frame-pointer ${APPDEFS:-} -I $GB -I $APP"
 
 APP_RELS=""
+for src in "$APP"/*.s; do                       # app-local asm (e.g. the float engine)
+    [ -e "$src" ] || continue
+    rel="$work/$(basename "${src%.s}").rel"
+    "$SDAS" -o "$rel" "$src"
+    APP_RELS="$APP_RELS $rel"
+done
 for src in "$APP"/*.c; do
     rel="$work/$(basename "${src%.c}").rel"
     "$SDCC" $CFLAGS -c "$src" -o "$rel"
