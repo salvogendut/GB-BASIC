@@ -38,9 +38,10 @@ if [ ! -f build/bootsav.dsk ] || [ "${FORCE_BOOTDSK:-0}" = "1" ]; then
         > "$GEOK/build/GEOBENCH.CFG"
     ( cd "$GEOK" && rm -f build/gbkern.dsk \
         && rasm kernel/gbkern.asm -eo -DSTORAGE_ALBIREO=1 >/dev/null 2>&1 \
-        && rasm kernel/pack_apps.asm  >/dev/null 2>&1 \
-        && rasm kernel/pack_apps2.asm >/dev/null 2>&1 \
-        && rasm kernel/pack_apps3.asm >/dev/null 2>&1 )
+        && rasm kernel/pack_apps.asm    >/dev/null 2>&1 \
+        && rasm kernel/pack_apps2.asm   >/dev/null 2>&1 \
+        && rasm kernel/pack_apps3.asm   >/dev/null 2>&1 \
+        && rasm kernel/pack_modules.asm >/dev/null 2>&1 )   # FLOPPYSV.MOD (disk save)
     cp "$GEOK/build/gbkern.dsk" build/bootsav.dsk
     echo "Rebuilt build/bootsav.dsk (SAVER=B:SPIKE boot floppy, pinned worktree)"
 fi

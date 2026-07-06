@@ -1,0 +1,21 @@
+10 REM CHASE - move the dot with I/J/K/M, Q quits
+20 CLS
+30 PRINT "I=up J=left K=right M=down Q=quit"
+40 X=120 : Y=90 : PX=X : PY=Y
+50 PSET (X,Y),1
+60 K$=INKEY$
+70 IF K$="" THEN 60
+80 IF K$="Q" OR K$="q" THEN 200
+90 PX=X : PY=Y
+100 IF K$="I" OR K$="i" THEN Y=Y-4
+110 IF K$="M" OR K$="m" THEN Y=Y+4
+120 IF K$="J" OR K$="j" THEN X=X-4
+130 IF K$="K" OR K$="k" THEN X=X+4
+140 IF X<0 THEN X=0
+150 IF X>239 THEN X=239
+160 IF Y<8 THEN Y=8
+170 IF Y>159 THEN Y=159
+180 PSET (PX,PY),0 : PSET (X,Y),1
+190 GOTO 60
+200 PRINT "Bye!"
+210 END

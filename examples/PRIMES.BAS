@@ -1,0 +1,13 @@
+10 REM PRIMES - primes below 60 by trial division
+20 CLS
+30 PRINT "Primes under 60:"
+40 FOR N=2 TO 59
+50 P=1
+60 FOR D=2 TO N-1
+70 IF N MOD D=0 THEN P=0
+80 NEXT D
+90 IF P=1 THEN PRINT N;
+100 NEXT N
+110 PRINT
+120 PRINT "Done."
+130 END
