@@ -35,9 +35,15 @@ the GEOBENCH disk is needed.
 
 ## Quick start (MSX2)
 
-Mount **`dist/GBBASIC-MSX.DSK`** as a second disk alongside your GEOBENCH MSX
-image, open it in the File Manager, and run **BASIC.APP** the same way. MSX needs
-a machine with enough mapper RAM for the extra windows (the project tests 512K).
+Mount **`dist/GBBASIC-MSX.DSK`** as a disk alongside your GEOBENCH MSX image,
+open it in the File Manager, and run **BASIC.APP** the same way. MSX needs a
+machine with enough mapper RAM for the extra windows (the project tests 512K).
+
+> **Keep the disk's files in one directory.** BASRUN loads its `BASRUN2.BIN`
+> overlay from the **current directory** (MSX has subdirectories; the CPC floppy
+> is flat). `GBBASIC-MSX.DSK` ships `BASRUN2.BIN` in the root next to the apps
+> and examples, so launching from the disk root just works. If you copy programs
+> into a subfolder, copy `BASRUN2.BIN` alongside them (or run from the root).
 
 ## The language
 
