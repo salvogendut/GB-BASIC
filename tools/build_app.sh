@@ -7,7 +7,7 @@
 #   env: GEOBENCH   path to the geobench checkout (default ../geobench)
 #        DATA_LOC   app data split (default 0x6200): code #4000..DATA_LOC,
 #                   data DATA_LOC..#7FFF
-#        APPDEFS    extra defines for EVERY unit (e.g. -DGB_MSX2 — must reach
+#        APPDEFS    extra defines for EVERY unit (e.g. -DGB_MSX2/-DGB_PCW — must reach
 #                   libgb C too: gb.h derives GB_COLS/GB_LINES from it, #287)
 #        DOC=1      link gbui_stub + gbdoc (the File-menu document framework)
 #        BUILD_DIR  intermediates dir (default build/<app>[-msx])
@@ -27,7 +27,10 @@ SDAS="$BIN/sdasz80"
 MAKEBIN="$BIN/makebin"
 
 suffix=""
-case "${APPDEFS:-}" in *GB_MSX2*) suffix="-msx" ;; esac
+case "${APPDEFS:-}" in
+    *GB_PCW*)  suffix="-pcw" ;;
+    *GB_MSX2*) suffix="-msx" ;;
+esac
 work="${BUILD_DIR:-build/$(basename "$APP")$suffix}"
 mkdir -p "$work" "$(dirname "$OUT")"
 

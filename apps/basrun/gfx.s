@@ -9,9 +9,11 @@
 ;; use GB_FILL for the whole-byte middle. The window origin is read live from
 ;; MW_RECT (0x1448/0x1449) so drawing follows a dragged window.
 ;;
-;; Platform pixel packing (plat.inc sets MSX2 = 0/1):
+;; Platform pixel packing (plat.inc sets MSX2/PCW = 0/1):
 ;;   CPC Mode 1: pixel i has bit0 at 7-i, bit1 at 3-i.
 ;;   MSX Screen 6: linear 2-bit fields, pixel i at bits (6-2i).
+;;   PCW CGA2: linear fields too, but save/restore bytes are hardware-space:
+;;     GB pens 0..3 map to fields 01, 11, 00, 10.
         .module gfx
         .include "plat.inc"
 
@@ -107,6 +109,23 @@ pset_i:
         and     (hl)
         ld      (hl), a
         ;; set bits from the per-pen tables (platform-specific tables below)
+.if PCW
+        ld      a, (GPEN)
+        and     #3
+        add     a, a
+        add     a, a            ; pen * 4
+        ld      c, a
+        ld      a, (GIDX)
+        add     a, c
+        ld      e, a
+        ld      d, #0
+        ld      hl, #PBYTE
+        add     hl, de
+        ld      a, (hl)
+        ld      hl, #GBYTE
+        or      (hl)
+        ld      (hl), a
+.else
         ld      a, (GPEN)
         and     #1
         jr      z, ps_b1
@@ -131,6 +150,7 @@ ps_b1:  ld      a, (GPEN)
         ld      hl, #GBYTE
         or      (hl)
         ld      (hl), a
+.endif
 ps_wr:  ;; write the byte back
         ld      a, (GBX)
         ld      b, a
@@ -140,6 +160,13 @@ ps_wr:  ;; write the byte back
         ld      hl, #GBYTE
         jp      GB_RESTORERECT
 
+.if PCW
+MASKC:  .db     0xC0, 0x30, 0x0C, 0x03      ; 2-bit hardware field of pixel i
+PBYTE:  .db     0x40, 0x10, 0x04, 0x01      ; GB pen 0 -> hw field 01
+        .db     0xC0, 0x30, 0x0C, 0x03      ; GB pen 1 -> hw field 11
+        .db     0x00, 0x00, 0x00, 0x00      ; GB pen 2 -> hw field 00
+        .db     0x80, 0x20, 0x08, 0x02      ; GB pen 3 -> hw field 10
+.else
 .if MSX2
 MASKC:  .db     0xC0, 0x30, 0x0C, 0x03      ; 2-bit field of pixel i
 PB0:    .db     0x40, 0x10, 0x04, 0x01      ; pen bit0 at field position
@@ -148,6 +175,7 @@ PB1:    .db     0x80, 0x20, 0x08, 0x02      ; pen bit1
 MASKC:  .db     0x88, 0x44, 0x22, 0x11      ; bit0(7-i) | bit1(3-i)
 PB0:    .db     0x80, 0x40, 0x20, 0x10      ; pen bit0 at 7-i
 PB1:    .db     0x08, 0x04, 0x02, 0x01      ; pen bit1 at 3-i
+.endif
 .endif
 
 ;; void g_pset(void)  - plot (GX0, GY0) in GPEN

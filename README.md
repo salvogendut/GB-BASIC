@@ -1,7 +1,7 @@
 # GB-BASIC
 
 A small **GW-BASIC-flavoured BASIC** for [GEOBENCH](../geobench) — the GEOS-like
-desktop for the Amstrad CPC and MSX2. GB-BASIC is two co-operating GEOBENCH apps:
+desktop for the Amstrad CPC, MSX2 and Amstrad PCW. GB-BASIC is two co-operating GEOBENCH apps:
 
 - **BASIC.APP** — the program editor (GEOBENCH's Notepad, adapted for `.BAS`),
   with a **Run** menu.
@@ -45,6 +45,13 @@ machine with enough mapper RAM for the extra windows (the project tests 512K).
 > and examples, so launching from the disk root just works. If you copy programs
 > into a subfolder, copy `BASRUN2.BIN` alongside them (or run from the root).
 
+## Quick start (Amstrad PCW)
+
+Boot **`../geobench/QA/PCW/GEOBENCH.DSK`** in the PCW emulator or on PCW
+hardware and mount **`dist/GBBASIC-PCW.DSK`** in drive B. Open Disk B in the
+File Manager and run **BASIC.APP**. The PCW disk is a flat CF2 CP/M data disk,
+so the apps, `BASRUN2.BIN`, and examples all live in the root directory.
+
 ## The language
 
 See **[docs/LANGUAGE.md](docs/LANGUAGE.md)** for the full statement and function
@@ -73,14 +80,16 @@ reference and the (small, documented) deviations from GW-BASIC. In brief:
 ## Building from source
 
 Needs `rasm`, `sdcc` (with `sdasz80`/`sdldz80`/`makebin`), and — for the MSX
-disk — `mkfs.fat` + `mtools`. Point `GEOBENCH` at your geobench checkout
+disk — `mkfs.fat` + `mtools`. The PCW disk builder uses
+`../geobench/tools/mkpcwdsk.py`. Point `GEOBENCH` at your geobench checkout
 (default `../geobench`); GB-BASIC compiles against its shared `lib/gb` and never
 modifies it.
 
 ```bash
 make cpc     # dist/GBBASIC.DSK   (CPC drive-B data disk)
 make msx     # dist/GBBASIC-MSX.DSK
-make all     # both
+make pcw     # dist/GBBASIC-PCW.DSK
+make all     # all supported targets
 make qa-cpc  # build + run a smoke test in the 1984 emulator (headless)
 ```
 
