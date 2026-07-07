@@ -1,11 +1,12 @@
-# GB-BASIC — a GW-BASIC-style BASIC for GEOBENCH (CPC + MSX2).
-# Deliverables: dist/GBBASIC.DSK (CPC drive-B data disk) and dist/GBBASIC-MSX.DSK.
+# GB-BASIC — a GW-BASIC-style BASIC for GEOBENCH (CPC + MSX2 + PCW).
+# Deliverables: dist/GBBASIC.DSK (CPC drive-B data disk),
+# dist/GBBASIC-MSX.DSK, and dist/GBBASIC-PCW.DSK.
 GEOBENCH ?= ../geobench
 export GEOBENCH
 
-.PHONY: all cpc msx spike raws raws-msx dsk-cpc dsk-msx qa-cpc qa-msx clean
+.PHONY: all cpc msx pcw spike raws raws-msx raws-pcw dsk-cpc dsk-msx dsk-pcw qa-cpc qa-msx clean
 
-all: cpc msx
+all: cpc msx pcw
 
 # --- CPC ---------------------------------------------------------------------
 raws:
@@ -28,6 +29,17 @@ dsk-msx: raws-msx
 	bash tools/build_msx_dsk.sh
 
 msx: dsk-msx
+
+# --- PCW ---------------------------------------------------------------------
+raws-pcw:
+	APPDEFS=-DGB_PCW DOC=1 DATA_LOC=0x6BF0 bash tools/build_app.sh apps/basic  build/pcw/BASIC.RAW
+	PCW=1 bash tools/build_engine.sh build/pcw/BASRUN2.BIN
+	APPDEFS="-DGB_PCW -DBUILTIN_OFF" NOGBWIN=1 DATA_LOC=0x7F40 bash tools/build_app.sh apps/basrun build/pcw/BASRUN.RAW
+
+dsk-pcw: raws-pcw
+	bash tools/build_pcw_dsk.sh
+
+pcw: dsk-pcw
 
 # --- dev ----------------------------------------------------------------------
 spike:

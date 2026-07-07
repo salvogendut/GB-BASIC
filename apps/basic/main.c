@@ -49,6 +49,8 @@
 #define WRAP      ((win_w - 4) * 2 / 3)               /* chars per wrapped line (runtime) */
 #ifdef GB_MSX2
 #define MAXWRAP   84           /* line[] cap = max WRAP on the 128-col MSX window */
+#elif defined(GB_PCW)
+#define MAXWRAP   60           /* line[] cap = max WRAP on the 90-col PCW window */
 #else
 #define MAXWRAP   52           /* line[] cap = max WRAP (80-col window) */
 #endif
@@ -404,10 +406,12 @@ static void paste_clip(void);
  * repaints the desktop we vacated. */
 static void np_fullscreen(unsigned char on)
 {
-    if (on) { gb_wm_setpos(0, 8); gb_wm_setsize(GB_COLS, GB_LINES - 8); }
+    unsigned char fw = (unsigned char)GB_COLS;
+    unsigned char fh = (unsigned char)(GB_LINES - 8);
+    if (on) { gb_wm_setpos(0, 8); gb_wm_setsize(fw, fh); }
     else    { gb_wm_setpos(DEF_X, DEF_Y); gb_wm_setsize(DEF_W, DEF_H); }
-    gb_wm_damage(0, 8, GB_COLS, GB_LINES - 8); /* repaint ONCE in on_frame, clipped to the toggle area;
-                                            repainting here too double-paints (the flicker, #153) */
+    gb_wm_damage(0, 8, fw, fh); /* repaint ONCE in on_frame, clipped to the toggle area;
+                                   repainting here too double-paints (the flicker, #153) */
 }
 
 static const gb_doc_t npdoc = {
@@ -528,12 +532,10 @@ static unsigned char cursor_over(void)
    directly so the keys stay globally disarmed (no char-buffer flood) yet still reach
    us. Only A + arr_bits cross each call, so a KM_TEST_KEY register clobber can't
    corrupt the accumulator. */
-#ifdef GB_MSX2
-/* MSX2 has no CPC firmware: #BB1E is not KM_TEST_KEY there, and calling it wrote an
-   invalid i8255 PPI mode that HUNG the machine the instant a text app tried to read
-   the cursor keys (#287). On MSX the cursor keys ARE the pointer (GTSTCK 0) anyway,
-   so arrow-key caret nav doesn't belong here - the caret is placed by click (see the
-   "Click text to place caret" status line). Report no arrows. */
+#if defined(GB_MSX2) || defined(GB_PCW)
+/* Non-CPC targets have no CPC firmware: #BB1E is not KM_TEST_KEY there. On MSX
+   and PCW the cursor keys drive the pointer through the GEOBENCH input layer, so
+   arrow-key caret nav doesn't belong here - the caret is placed by click. */
 static void read_arrows(void) { arr_bits = 0; }
 #else
 static void read_arrows(void) __naked
