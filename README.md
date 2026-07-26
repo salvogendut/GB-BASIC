@@ -93,6 +93,11 @@ make all     # all supported targets
 make qa-cpc  # build + run a smoke test in the 1984 emulator (headless)
 ```
 
+`apps/basic/icon.asm` is BASIC.APP's canonical four-colour desktop icon. The
+editable PNG source lives at `assets/icon.png`. The build embeds the canonical
+ASM in the application's GBAP header on every platform; adding an
+adjacent `icon16.asm` later supplies an optional native MSX 16-colour variant.
+
 ## How it works (and why it's two files plus an overlay)
 
 A GEOBENCH C app runs in a single 16 KB bank (`#4000–#7FFF`) and reaches the

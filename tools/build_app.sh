@@ -10,6 +10,9 @@
 #        APPDEFS    extra defines for EVERY unit (e.g. -DGB_MSX2/-DGB_PCW — must reach
 #                   libgb C too: gb.h derives GB_COLS/GB_LINES from it, #287)
 #        DOC=1      link gbui_stub + gbdoc (the File-menu document framework)
+#        APP_ICON   canonical four-colour icon.asm to embed in a GBAP header
+#        APP_ICON16 optional native MSX Screen-7 icon.asm; an adjacent file is
+#                   detected automatically for MSX builds
 #        BUILD_DIR  intermediates dir (default build/<app>[-msx])
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,6 +23,9 @@ GEOBENCH="${GEOBENCH:-../geobench}"
 GB="$GEOBENCH/lib/gb"
 DATA_LOC="${DATA_LOC:-0x6200}"
 DOC_FLAG="${DOC:-0}"
+APP_ICON="${APP_ICON:-}"
+APP_ICON16="${APP_ICON16:-}"
+ICON_TOOL="$GEOBENCH/tools/embed_app_icon.py"
 
 SDCC="${SDCC:-sdcc}"
 BIN="$(dirname "$(command -v "$SDCC")")"    # sdasz80 / makebin sit beside sdcc
@@ -32,6 +38,31 @@ case "${APPDEFS:-}" in
     *GB_MSX2*) suffix="-msx" ;;
 esac
 work="${BUILD_DIR:-build/$(basename "$APP")$suffix}"
+CODE_LOC=0x4000
+
+case " ${APPDEFS:-} " in
+    *" -DGB_MSX2 "*)
+        if [ -n "$APP_ICON" ] && [ -z "$APP_ICON16" ]; then
+            icon16_candidate="$(dirname "$APP_ICON")/icon16.asm"
+            [ ! -f "$icon16_candidate" ] || APP_ICON16="$icon16_candidate"
+        fi
+        ;;
+esac
+if [ -n "$APP_ICON16" ] && [ -z "$APP_ICON" ]; then
+    echo "ERROR: APP_ICON16 requires APP_ICON" >&2
+    exit 1
+fi
+if [ -n "$APP_ICON" ]; then
+    [ -f "$ICON_TOOL" ] || {
+        echo "ERROR: missing GEOBENCH icon tool: $ICON_TOOL" >&2
+        exit 1
+    }
+    icon_args=("$APP_ICON")
+    [ -z "$APP_ICON16" ] || icon_args+=("$APP_ICON16")
+    preamble_size=$(python3 "$ICON_TOOL" size "${icon_args[@]}")
+    CODE_LOC=$(printf '0x%X' $((0x4000 + preamble_size)))
+fi
+
 mkdir -p "$work" "$(dirname "$OUT")"
 
 "$SDAS" -o "$work/crt0.rel"  "$GB/crt0.s"
@@ -72,9 +103,9 @@ if [ "$DOC_FLAG" = "1" ]; then
     DLG_REL="$DLG_REL $work/gbui_stub.rel $work/gbdoc.rel"
 fi
 
-# crt0 FIRST so _start lands at #4000; z80.lib (float/long support) is linked
-# automatically by the sdcc driver.
-"$SDCC" -mz80 --no-std-crt0 --code-loc 0x4000 --data-loc "$DATA_LOC" \
+# crt0 FIRST so _start lands at CODE_LOC. A GBAP header at #4000 jumps there.
+# z80.lib (float/long support) is linked automatically by the sdcc driver.
+"$SDCC" -mz80 --no-std-crt0 --code-loc "$CODE_LOC" --data-loc "$DATA_LOC" \
     "$work/crt0.rel" $APP_RELS $DLG_REL "$work/gblib.rel" -o "$work/app.ihx"
 
 # STABILITY GUARD (from geobench build_capp.sh): the whole LOADED IMAGE
@@ -110,5 +141,13 @@ if errs:
 PY
 
 "$MAKEBIN" -p "$work/app.ihx" "$work/app.bin"
-tail -c +16385 "$work/app.bin" > "$OUT"     # strip the low 16K (image is org #4000)
+linked_raw="$work/app-linked.raw"
+tail -c +16385 "$work/app.bin" > "$linked_raw"
+if [ -n "$APP_ICON" ]; then
+    icon_args=("$APP_ICON")
+    [ -z "$APP_ICON16" ] || icon_args+=("$APP_ICON16")
+    python3 "$ICON_TOOL" inject "${icon_args[@]}" "$linked_raw" "$OUT"
+else
+    cp "$linked_raw" "$OUT"
+fi
 echo "Built $OUT ($(stat -c%s "$OUT") bytes) from $APP"
