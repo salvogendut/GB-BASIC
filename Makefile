@@ -4,13 +4,15 @@
 GEOBENCH ?= ../geobench
 export GEOBENCH
 
+BASIC_ICON := apps/basic/icon.asm
+
 .PHONY: all cpc msx pcw spike raws raws-msx raws-pcw dsk-cpc dsk-msx dsk-pcw qa-cpc qa-msx clean
 
 all: cpc msx pcw
 
 # --- CPC ---------------------------------------------------------------------
 raws:
-	DOC=1 DATA_LOC=0x6BF0 bash tools/build_app.sh apps/basic  build/BASIC.RAW
+	APP_ICON=$(BASIC_ICON) DOC=1 DATA_LOC=0x6BF0 bash tools/build_app.sh apps/basic build/BASIC.RAW
 	bash tools/build_engine.sh
 	APPDEFS=-DBUILTIN_OFF NOGBWIN=1 DATA_LOC=0x7F40 bash tools/build_app.sh apps/basrun build/BASRUN.RAW
 
@@ -21,7 +23,7 @@ cpc: dsk-cpc
 
 # --- MSX ---------------------------------------------------------------------
 raws-msx:
-	APPDEFS=-DGB_MSX2 DOC=1 DATA_LOC=0x6BF0 bash tools/build_app.sh apps/basic  build/msx/BASIC.RAW
+	APP_ICON=$(BASIC_ICON) APPDEFS=-DGB_MSX2 DOC=1 DATA_LOC=0x6BF0 bash tools/build_app.sh apps/basic build/msx/BASIC.RAW
 	MSX2=1 bash tools/build_engine.sh build/msx/BASRUN2.BIN
 	APPDEFS="-DGB_MSX2 -DBUILTIN_OFF" NOGBWIN=1 DATA_LOC=0x7F40 bash tools/build_app.sh apps/basrun build/msx/BASRUN.RAW
 
@@ -32,7 +34,7 @@ msx: dsk-msx
 
 # --- PCW ---------------------------------------------------------------------
 raws-pcw:
-	APPDEFS=-DGB_PCW DOC=1 DATA_LOC=0x6BF0 bash tools/build_app.sh apps/basic  build/pcw/BASIC.RAW
+	APP_ICON=$(BASIC_ICON) APPDEFS=-DGB_PCW DOC=1 DATA_LOC=0x6BF0 bash tools/build_app.sh apps/basic build/pcw/BASIC.RAW
 	PCW=1 bash tools/build_engine.sh build/pcw/BASRUN2.BIN
 	APPDEFS="-DGB_PCW -DBUILTIN_OFF" NOGBWIN=1 DATA_LOC=0x7F40 bash tools/build_app.sh apps/basrun build/pcw/BASRUN.RAW
 
